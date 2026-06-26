@@ -1,13 +1,9 @@
 package main
 
 import (
-	"compress/zlib"
-	"crypto/sha1"
 	"fmt"
-	"io"
+	"got/git"
 	"os"
-	"path/filepath"
-	"strings"
 )
 
 func main() {
@@ -19,75 +15,19 @@ func main() {
 
 	switch command := os.Args[1]; command {
 	case "init":
-
-		for _, dir := range []string{".git", ".git/objects", ".git/refs"} {
-			if err := os.MkdirAll(dir, 0755); err != nil {
-				fmt.Fprintf(os.Stderr, "Error creating directory: %s\n", err)
-			}
-		}
-
-		headFileContents := []byte("ref: refs/heads/main\n")
-		if err := os.WriteFile(".git/HEAD", headFileContents, 0644); err != nil {
-			fmt.Fprintf(os.Stderr, "Error writing file: %s\n", err)
-		}
-
-		fmt.Println("Initialized git directory")
+		git.Init()
 
 	case "cat-file":
 		sha := os.Args[3]
 
-		path := fmt.Sprintf(".git/objects/%s/%s", sha[:2], sha[2:])
+		out := git.CatFile(sha)
 
-		file, err := os.Open(path)
-		if err != nil {
-			fmt.Fprintf(os.Stderr,"%s", err.Error())
-		}
-
-		r, err := zlib.NewReader(file)
-		if err != nil {
-			fmt.Fprintf(os.Stderr,"%s", err.Error())
-		}
-
-		s, err := io.ReadAll(r)
-		if err != nil {
-			fmt.Fprintf(os.Stderr,"%s", err.Error())
-		}
-
-		parts := strings.Split(string(s), "\x00")
-
-		fmt.Print(parts[1])
-
-		r.Close()
+		fmt.Print(out)
 
 	case "hash-object":
-		content, err := os.ReadFile(os.Args[3])
-		if err != nil {
-			fmt.Fprintf(os.Stderr,"%s", err.Error())
-		}
+		hash := git.HashObject(os.Args[3])
 
-		object := fmt.Sprintf("blob %d\x00%s", len(content), content)
-		sha := fmt.Sprintf("%x", sha1.Sum([]byte(object)))
-
-		path := fmt.Sprintf(".git/objects/%s/%s", sha[:2], sha[2:])
-		err = os.MkdirAll(filepath.Dir(path), os.ModePerm)
-		if err != nil {
-			fmt.Fprintf(os.Stderr,"%s", err.Error())
-		}
-
-		file, err := os.Create(path)
-		if err != nil {
-			fmt.Fprintf(os.Stderr,"%s", err.Error())
-		}
-		defer file.Close()
-
-		writer := zlib.NewWriter(file)
-		defer writer.Close()
-		_, err = writer.Write([]byte(object))
-		if err != nil {
-			fmt.Fprintf(os.Stderr,"%s", err.Error())
-		}
-
-		fmt.Println(sha)
+		fmt.Println(hash)
 
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command %s\n", command)
