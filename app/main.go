@@ -1,8 +1,11 @@
 package main
 
 import (
+	"compress/zlib"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 )
 
 func main() {
@@ -27,6 +30,32 @@ func main() {
 		}
 
 		fmt.Println("Initialized git directory")
+
+	case "cat-file":
+		sha := os.Args[3]
+
+		path := fmt.Sprintf(".git/objects/%s/%s", sha[:2], sha[2:])
+
+		file, err := os.Open(path)
+		if err != nil {
+			fmt.Errorf("%s", err.Error())
+		}
+
+		r, err := zlib.NewReader(file)
+		if err != nil {
+			fmt.Errorf("%s", err.Error())
+		}
+
+		s, err := io.ReadAll(r)
+		if err != nil {
+			fmt.Errorf("%s", err.Error())
+		}
+
+		parts := strings.Split(string(s), "\x00")
+
+		fmt.Print(parts[1])
+
+		r.Close()
 
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command %s\n", command)
