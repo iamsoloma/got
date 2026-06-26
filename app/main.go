@@ -2,9 +2,11 @@ package main
 
 import (
 	"compress/zlib"
+	"crypto/sha1"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -38,17 +40,17 @@ func main() {
 
 		file, err := os.Open(path)
 		if err != nil {
-			fmt.Errorf("%s", err.Error())
+			fmt.Fprintf(os.Stderr,"%s", err.Error())
 		}
 
 		r, err := zlib.NewReader(file)
 		if err != nil {
-			fmt.Errorf("%s", err.Error())
+			fmt.Fprintf(os.Stderr,"%s", err.Error())
 		}
 
 		s, err := io.ReadAll(r)
 		if err != nil {
-			fmt.Errorf("%s", err.Error())
+			fmt.Fprintf(os.Stderr,"%s", err.Error())
 		}
 
 		parts := strings.Split(string(s), "\x00")
@@ -56,6 +58,36 @@ func main() {
 		fmt.Print(parts[1])
 
 		r.Close()
+
+	case "hash-object":
+		content, err := os.ReadFile(os.Args[3])
+		if err != nil {
+			fmt.Fprintf(os.Stderr,"%s", err.Error())
+		}
+
+		object := fmt.Sprintf("blob %d\x00%s", len(content), content)
+		sha := fmt.Sprintf("%x", sha1.Sum([]byte(object)))
+
+		path := fmt.Sprintf(".git/objects/%s/%s", sha[:2], sha[2:])
+		err = os.MkdirAll(filepath.Dir(path), os.ModePerm)
+		if err != nil {
+			fmt.Fprintf(os.Stderr,"%s", err.Error())
+		}
+
+		file, err := os.Create(path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr,"%s", err.Error())
+		}
+		defer file.Close()
+
+		writer := zlib.NewWriter(file)
+		defer writer.Close()
+		_, err = writer.Write([]byte(object))
+		if err != nil {
+			fmt.Fprintf(os.Stderr,"%s", err.Error())
+		}
+
+		fmt.Println(sha)
 
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command %s\n", command)
