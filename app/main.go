@@ -29,6 +29,21 @@ func main() {
 
 		fmt.Println(hash)
 
+	case "ls-tree":
+		sha := os.Args[2]
+
+		nodes, err := git.LsTree(sha)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s", err.Error())
+		}
+		for _, node := range nodes {
+			nodeType := "blob"
+			if node.Mode == git.Dir {
+				nodeType = "tree"
+			}
+			fmt.Printf("%s %s %s %s\n",node.Mode, nodeType, node.Sha1, node.Name)
+		}
+
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command %s\n", command)
 		os.Exit(1)
