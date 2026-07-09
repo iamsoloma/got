@@ -268,3 +268,73 @@ func WriteTree(dirPath string) (string, error) {
 
 	return treeSHA, nil
 }
+
+type Commit struct {
+	SHA1      string
+	TreeSHA   string
+	ParentSHA string
+	Message   string
+	Author    Author
+	Committer Committer
+}
+
+type Author struct {
+	Name      string
+	Email     string
+	Timestamp int64
+	Timezone  int
+}
+
+type Committer struct {
+	Name      string
+	Email     string
+	Timestamp int64
+	Timezone  int
+}
+
+func formatTimezone(offset int) string {
+	sign := "+"
+	if offset < 0 {
+		sign = "-"
+		offset = -offset
+	}
+	hours := offset / 3600
+	minutes := (offset % 3600) / 60
+	return fmt.Sprintf("%s%02d%02d", sign, hours, minutes)
+}
+
+func CommitTree(c Commit) (sha string, err error) {
+	var body []byte
+	body = append(body, []byte(fmt.Sprintf("tree %s\n", c.TreeSHA))...)
+	if c.ParentSHA != "" {
+		body = append(body, []byte(fmt.Sprintf("parent %s\n", c.ParentSHA))...)
+	}
+	body = append(body, []byte(fmt.Sprintf("author %s <%s> %d %s\n", c.Author.Name, c.Author.Email, c.Author.Timestamp, formatTimezone(c.Author.Timezone)))...)
+	body = append(body, []byte(fmt.Sprintf("committer %s <%s> %d %s\n", c.Committer.Name, c.Committer.Email, c.Committer.Timestamp, formatTimezone(c.Committer.Timezone)))...)
+	body = append(body, []byte("\n")...)
+	body = append(body, []byte(c.Message)...)
+
+	object := fmt.Sprintf("commit %d\x00%s", len(body), body)
+	sha = fmt.Sprintf("%x", sha1.Sum([]byte(object)))
+
+	path := fmt.Sprintf(".git/objects/%s/%s", sha[:2], sha[2:])
+	err = os.MkdirAll(filepath.Dir(path), os.ModePerm)
+	if err != nil {
+		return "", err
+	}
+
+	file, err := os.Create(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	writer := zlib.NewWriter(file)
+	defer writer.Close()
+	_, err = writer.Write([]byte(object))
+	if err != nil {
+		return "", err
+	}
+
+	return sha, nil
+}

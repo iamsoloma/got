@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"got/git"
 	"os"
+	"time"
 )
 
 func main() {
@@ -41,7 +42,7 @@ func main() {
 			if node.Mode == git.Dir {
 				nodeType = "tree"
 			}
-			fmt.Printf("%s %s %s %s\n",node.Mode, nodeType, node.Sha1, node.Name)
+			fmt.Printf("%s %s %s %s\n", node.Mode, nodeType, node.Sha1, node.Name)
 		}
 	case "write-tree":
 		treeSHA, err := git.WriteTree(".")
@@ -49,6 +50,39 @@ func main() {
 			fmt.Fprintf(os.Stderr, "%s", err.Error())
 		}
 		fmt.Println(treeSHA)
+
+	case "commit-tree":
+		treeSHA := os.Args[2]
+		parentSHA := os.Args[4]
+		message := os.Args[6]
+
+		_, tz := time.Now().Zone()
+		author := git.Author{
+			Name:      "soloma",
+			Email:     "EgorSolomahin1@yandex.ru",
+			Timestamp: time.Now().UTC().Unix(),
+			Timezone:  tz,
+		}
+		committer := git.Committer{
+			Name:      author.Name,
+			Email:     author.Email,
+			Timestamp: author.Timestamp,
+			Timezone:  author.Timezone,
+		}
+
+		commit := git.Commit{
+			TreeSHA:   treeSHA,
+			ParentSHA: parentSHA,
+			Message:   message,
+			Author:    author,
+			Committer: committer,
+		}
+
+		sha, err := git.CommitTree(commit)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s", err.Error())
+		}
+		fmt.Println(sha)
 
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command %s\n", command)
