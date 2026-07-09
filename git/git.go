@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
-	"strings"
 )
 
 func Init() {
@@ -51,11 +50,11 @@ func CatFile(objectSha string) string {
 		fmt.Fprintf(os.Stderr, "%s", err.Error())
 	}
 
-	parts := strings.Split(string(s), "\x00")
+	//parts := strings.Split(string(s), "\x00")
 
 	r.Close()
 
-	return parts[1]
+	return string(s)
 }
 
 func HashObject(filename string) string {
