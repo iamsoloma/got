@@ -2,6 +2,8 @@ package git
 
 import (
 	"fmt"
+	"io/fs"
+	"os"
 	"strconv"
 )
 
@@ -27,4 +29,22 @@ func New(str string) (FileMode, error) {
 
 func (m FileMode) String() string {
 	return fmt.Sprintf("%07o", uint32(m))
+}
+
+func GetMode(filePath string) (FileMode, error) {
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return Empty, err
+	}
+
+	if info.Mode()&fs.ModeDir != 0 {
+		return Dir, nil
+	}
+	if info.Mode()&fs.ModeSymlink != 0 {
+		return SymLink, nil
+	}
+	if isExec := 0o111; info.Mode().Perm()&fs.FileMode(isExec) != 0 {
+		return Executable, nil
+	}
+	return Regular, nil
 }

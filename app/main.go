@@ -43,6 +43,12 @@ func main() {
 			}
 			fmt.Printf("%s %s %s %s\n",node.Mode, nodeType, node.Sha1, node.Name)
 		}
+	case "write-tree":
+		treeSHA, err := git.WriteTree(".")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s", err.Error())
+		}
+		fmt.Println(treeSHA)
 
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command %s\n", command)

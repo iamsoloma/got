@@ -7,9 +7,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -162,4 +164,107 @@ func LsTree(TreeSHA string) ([]Node, error) {
 	}
 
 	return nodes, nil
+}
+
+func CreateTree(dirPath string) ([]Node, error) {
+	files, err := os.ReadDir(dirPath)
+	if err != nil {
+		return []Node{}, err
+	}
+
+	//We are going to ignore files that are listed in .gitignore and the .git directory itself
+	gitignore, err := ReadGitignore(dirPath)
+	if err != nil {
+		return []Node{}, err
+	}
+
+	var nodes []Node
+
+	for _, file := range files {
+
+		if file.IsDir() {
+			if checkIgnore("/"+file.Name(), gitignore) {
+				//fmt.Println("Ignoring directory: " + "/"+file.Name())
+				continue
+			}
+			sha, err := WriteTree(dirPath + "/" + file.Name())
+			if err != nil {
+				return []Node{}, err
+			}
+			nodes = append(nodes, Node{
+				Mode: Dir,
+				Name: file.Name(),
+				Sha1: sha,
+			})
+		} else {
+			if checkIgnore(file.Name(), gitignore) {
+				continue
+			}
+			sha := HashObject(dirPath + "/" + file.Name())
+			mode, err := GetMode(dirPath + "/" + file.Name())
+			if err != nil {
+				return []Node{}, err
+			}
+			nodes = append(nodes, Node{
+				Mode: mode,
+				Name: file.Name(),
+				Sha1: sha,
+			})
+		}
+	}
+
+	sort.Slice(nodes, func(i, j int) bool {
+		return nodes[i].Name < nodes[j].Name
+	})
+
+	return nodes, nil
+
+}
+
+func WriteTree(dirPath string) (string, error) {
+	nodes, err := CreateTree(dirPath)
+	if err != nil {
+		return "", err
+	}
+
+	var treeContent bytes.Buffer
+
+	for _, node := range nodes {
+		treeContent.WriteString(node.Mode.String())
+		treeContent.WriteByte(' ')
+		treeContent.WriteString(node.Name)
+		treeContent.WriteByte(0)
+
+		shaBytes, err := hex.DecodeString(node.Sha1)
+		if err != nil {
+			return "", err
+		}
+		treeContent.Write(shaBytes)
+	}
+
+	treeHeader := fmt.Sprintf("tree %d\x00", treeContent.Len())
+	object := append([]byte(treeHeader), treeContent.Bytes()...)
+
+	treeSHA := fmt.Sprintf("%x", sha1.Sum(object))
+
+	path := fmt.Sprintf(".git/objects/%s/%s", treeSHA[:2], treeSHA[2:])
+	err = os.MkdirAll(filepath.Dir(path), os.ModePerm)
+	if err != nil {
+		return "", err
+	}
+
+	file, err := os.Create(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	writer := zlib.NewWriter(file)
+	defer writer.Close()
+	_, err = writer.Write(object)
+	if err != nil {
+		return "", err
+	}
+
+	return treeSHA, nil
 }
