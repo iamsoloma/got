@@ -304,13 +304,13 @@ func formatTimezone(offset int) string {
 
 func CommitTree(c Commit) (sha string, err error) {
 	var body []byte
-	body = append(body, []byte(fmt.Sprintf("tree %s\n", c.TreeSHA))...)
+	body = append(body, fmt.Appendf(nil, "tree %s\n", c.TreeSHA)...)
 	if c.ParentSHA != "" {
-		body = append(body, []byte(fmt.Sprintf("parent %s\n", c.ParentSHA))...)
+		body = append(body, fmt.Appendf(nil, "parent %s\n", c.ParentSHA)...)
 	}
-	body = append(body, []byte(fmt.Sprintf("author %s <%s> %d %s\n", c.Author.Name, c.Author.Email, c.Author.Timestamp, formatTimezone(c.Author.Timezone)))...)
-	body = append(body, []byte(fmt.Sprintf("committer %s <%s> %d %s\n", c.Committer.Name, c.Committer.Email, c.Committer.Timestamp, formatTimezone(c.Committer.Timezone)))...)
-	body = append(body, []byte("\n")...)
+	body = append(body, fmt.Appendf(nil, "author %s <%s> %d %s\n", c.Author.Name, c.Author.Email, c.Author.Timestamp, formatTimezone(c.Author.Timezone))...)
+	body = append(body, fmt.Appendf(nil, "committer %s <%s> %d %s\n", c.Committer.Name, c.Committer.Email, c.Committer.Timestamp, formatTimezone(c.Committer.Timezone))...)
+	body = append(body, fmt.Appendf(nil, "\n")...)
 	body = append(body, []byte(c.Message)...)
 
 	object := fmt.Sprintf("commit %d\x00%s", len(body), body)
