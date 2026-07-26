@@ -151,6 +151,7 @@ func ReadTag(name string) (Reference, error) {
 	if err != nil {
 		return Reference{}, err
 	}
+	ref.Name = strings.Trim(ref.Name, "/tags")
 	return ref, nil
 }
 
@@ -317,19 +318,32 @@ func ReadAnnotatedTag(name string) (tag AnnotatedTag, err error) {
 }
 
 func readTaggerData(inp string) (tagger Tagger, err error) {
-	parts := strings.Split(inp, " ")
+	emailStart := strings.Index(inp, " <")
+	if emailStart == -1 {
+		return tagger, fmt.Errorf("can`t find start of email")
+	}
+	tagger.Name = inp[:emailStart]
 
-	if len(parts) != 4 {
-		return tagger, fmt.Errorf("not enough parts")
+	emailEnd := strings.Index(inp, ">")
+	if emailEnd == -1 {
+		return tagger, fmt.Errorf("can`t find end of email")
 	}
 
-	tagger.Name = parts[0]
-	tagger.Email = strings.Trim(parts[1], "<>")
-	tagger.Timestamp, err = strconv.ParseInt(parts[2], 10, 64)
+	tagger.Email = inp[emailStart+2 : emailEnd]
+
+	inp = inp[emailEnd+2:]
+
+	timeDelimeter := strings.Index(inp, " ")
+	if timeDelimeter == -1 {
+		return tagger, fmt.Errorf("can`t find delimeter between timestamp and timezone")
+	}
+
+	tagger.Timestamp, err = strconv.ParseInt(inp[:timeDelimeter], 10, 64)
 	if err != nil {
-		return tagger, fmt.Errorf("can`t parce timestamp")
+		return tagger, fmt.Errorf("can`t parse timestamp")
 	}
-	tagger.Timezone, err = utils.ParseTimezone(parts[3])
+
+	tagger.Timezone, err = utils.ParseTimezone(inp[timeDelimeter+1:])
 	if err != nil {
 		return tagger, fmt.Errorf("can`t parce timezone")
 	}
