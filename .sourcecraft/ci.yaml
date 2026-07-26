@@ -1,0 +1,15 @@
+on:
+  push:
+    - workflows: [test-workflow]
+      filter:
+        branches: ["**"]
+
+workflows:
+  test-workflow:
+    tasks:
+      - name: test-task
+        cubes:
+          - name: run-tests
+            image: docker.io/library/golang:1.26
+            script:
+              - go test ./...
