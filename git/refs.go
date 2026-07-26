@@ -1,9 +1,14 @@
 package git
 
 import (
+	"bytes"
+	"compress/zlib"
+	"errors"
 	"fmt"
+	"got/utils"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -127,8 +132,207 @@ func ReadReference(name string) (Reference, error) {
 	if err != nil {
 		return Reference{}, err
 	}
-	
+
 	sha := strings.ReplaceAll(string(content), "\n", "")
 
 	return Reference{Name: name, Sha1: sha}, nil
+}
+
+func CreateTag(name, sha string) error {
+	err := UpdateReference(Reference{Name: "/tags/" + name, Sha1: sha})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func ReadTag(name string) (Reference, error) {
+	ref, err := ReadReference("/tags/" + name)
+	if err != nil {
+		return Reference{}, err
+	}
+	return ref, nil
+}
+
+type AnnotatedTag struct {
+	Name             string
+	TaggedObjectSha1 string
+	TaggedObjectType string
+	Tagger           Tagger
+	Message          string
+}
+
+type Tagger struct {
+	Name      string
+	Email     string
+	Timestamp int64
+	Timezone  int
+}
+
+func ReadAnnotatedTag(name string) (tag AnnotatedTag, err error) {
+	tag.Name = name
+
+	//read file
+	ref, err := ReadReference("/tags/" + name)
+	if err != nil {
+		return tag, err
+	}
+
+	path := fmt.Sprintf(".git/objects/%s/%s", ref.Sha1[:2], ref.Sha1[2:])
+	file, err := os.Open(path)
+	if err != nil {
+		return tag, err
+	}
+	defer file.Close()
+
+	r, err := zlib.NewReader(file)
+	if err != nil {
+		return tag, err
+	}
+
+	content, err := io.ReadAll(r)
+	if err != nil {
+		return tag, err
+	}
+	r.Close()
+
+	//read object type
+	tagHeader := []byte("tag ")
+	if !bytes.HasPrefix(content, tagHeader) {
+		return tag, errors.New("not correct tag header: " + string(content[:len(tagHeader)]))
+	}
+
+	delimIndex := bytes.Index(content, []byte{0})
+
+	size, err := strconv.Atoi(string(content[len(tagHeader):delimIndex]))
+	if err != nil {
+		return tag, errors.New("not correct tag header: " + string(content[:delimIndex]))
+	}
+	content = content[delimIndex+1:]
+
+	if size != len(content) {
+		return tag, fmt.Errorf("not correct tag size in header. Expected: %d. Actual: %d", len(content), size)
+	}
+
+	//read object`s tag
+	if !bytes.HasPrefix(content, []byte("object ")) {
+		return tag, fmt.Errorf("not correct tag object: not found tagged object declaration")
+	}
+
+	objectShaDelim := bytes.Index(content, []byte(" "))
+	if objectShaDelim == -1 {
+		return tag, fmt.Errorf("not correct tag object: not found delimeter between object declaration and his sha")
+	}
+
+	nextStroke := bytes.Index(content, []byte("\n"))
+	if nextStroke == -1 {
+		return tag, fmt.Errorf("not correct tag object: not found end of first line with tagged object`s sha")
+	}
+
+	sha := string(content[objectShaDelim+1 : nextStroke])
+	tag.TaggedObjectSha1 = sha
+
+	content = content[nextStroke+1:]
+
+	// read tagged object`s type
+	typeHeader := bytes.HasPrefix(content, []byte("type "))
+	if !typeHeader {
+		return tag, fmt.Errorf("not correct tag object: not found header of tagged object type")
+	}
+
+	objectTypeDelim := bytes.Index(content, []byte(" "))
+	if objectShaDelim == -1 {
+		return tag, fmt.Errorf("not correct tag object: not found delimeter between object type declaration and his type")
+	}
+
+	nextStroke = bytes.Index(content, []byte("\n"))
+	if nextStroke == -1 {
+		return tag, fmt.Errorf("not correct tag object: not found end of second line with tagged object`s type")
+	}
+
+	objType := string(content[objectTypeDelim+1 : nextStroke])
+	tag.TaggedObjectType = objType
+
+	content = content[nextStroke+1:]
+
+	// read tag name
+	tagNameHeader := bytes.HasPrefix(content, []byte("tag "))
+	if !tagNameHeader {
+		return tag, fmt.Errorf("not correct tag object: not found header of tag name")
+	}
+
+	objectTagDelim := bytes.Index(content, []byte(" "))
+	if objectShaDelim == -1 {
+		return tag, fmt.Errorf("not correct tag object: not found delimeter between object tag name declaration and his name")
+	}
+
+	nextStroke = bytes.Index(content, []byte("\n"))
+	if nextStroke == -1 {
+		return tag, fmt.Errorf("not correct tag object: not found end of third line with tag`s name")
+	}
+
+	tagName := string(content[objectTagDelim+1 : nextStroke])
+	if tag.Name != tagName {
+		return tag, fmt.Errorf("not correct tag object: reference name does not match object name.")
+	}
+	tag.TaggedObjectType = objType
+
+	content = content[nextStroke+1:]
+
+	//read tagger
+	taggerHeader := bytes.HasPrefix(content, []byte("tagger "))
+	if !taggerHeader {
+		return tag, fmt.Errorf("not correct tag object: not found header of tagger")
+	}
+
+	objectTaggerDelim := bytes.Index(content, []byte(" "))
+	if objectShaDelim == -1 {
+		return tag, fmt.Errorf("not correct tag object: not found delimeter between tagger declaration and his data")
+	}
+
+	nextStroke = bytes.Index(content, []byte("\n"))
+	if nextStroke == -1 {
+		return tag, fmt.Errorf("not correct tag object: not found end of fourth line with tagger data")
+	}
+
+	taggerData := string(content[objectTaggerDelim+1 : nextStroke])
+
+	tag.Tagger, err = readTaggerData(taggerData)
+	if err != nil {
+		return tag, fmt.Errorf("not correct tag object: problem in tagger`s line: %s", err.Error())
+	}
+
+	content = content[nextStroke+2:]
+
+	//read message
+	if len(content) != 0 {
+		endOfTag := bytes.Index(content, []byte("\n"))
+		if endOfTag == -1 {
+			return tag, fmt.Errorf("not correct tag object: not found end of tag`s message")
+		}
+		tag.Message = string(content[:endOfTag])
+	}
+
+	return tag, nil
+}
+
+func readTaggerData(inp string) (tagger Tagger, err error) {
+	parts := strings.Split(inp, " ")
+
+	if len(parts) != 4 {
+		return tagger, fmt.Errorf("not enough parts")
+	}
+
+	tagger.Name = parts[0]
+	tagger.Email = strings.Trim(parts[1], "<>")
+	tagger.Timestamp, err = strconv.ParseInt(parts[2], 10, 64)
+	if err != nil {
+		return tagger, fmt.Errorf("can`t parce timestamp")
+	}
+	tagger.Timezone, err = utils.ParseTimezone(parts[3])
+	if err != nil {
+		return tagger, fmt.Errorf("can`t parce timezone")
+	}
+
+	return tagger, nil
 }

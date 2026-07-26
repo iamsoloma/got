@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"got/utils"
 
 	"io"
 	"os"
@@ -291,25 +292,14 @@ type Committer struct {
 	Timezone  int
 }
 
-func formatTimezone(offset int) string {
-	sign := "+"
-	if offset < 0 {
-		sign = "-"
-		offset = -offset
-	}
-	hours := offset / 3600
-	minutes := (offset % 3600) / 60
-	return fmt.Sprintf("%s%02d%02d", sign, hours, minutes)
-}
-
 func CommitTree(c Commit) (sha string, err error) {
 	var body []byte
 	body = append(body, fmt.Appendf(nil, "tree %s\n", c.TreeSHA)...)
 	if c.ParentSHA != "" {
 		body = append(body, fmt.Appendf(nil, "parent %s\n", c.ParentSHA)...)
 	}
-	body = append(body, fmt.Appendf(nil, "author %s <%s> %d %s\n", c.Author.Name, c.Author.Email, c.Author.Timestamp, formatTimezone(c.Author.Timezone))...)
-	body = append(body, fmt.Appendf(nil, "committer %s <%s> %d %s\n", c.Committer.Name, c.Committer.Email, c.Committer.Timestamp, formatTimezone(c.Committer.Timezone))...)
+	body = append(body, fmt.Appendf(nil, "author %s <%s> %d %s\n", c.Author.Name, c.Author.Email, c.Author.Timestamp, utils.FormatTimezone(c.Author.Timezone))...)
+	body = append(body, fmt.Appendf(nil, "committer %s <%s> %d %s\n", c.Committer.Name, c.Committer.Email, c.Committer.Timestamp, utils.FormatTimezone(c.Committer.Timezone))...)
 	body = append(body, fmt.Appendf(nil, "\n")...)
 	body = append(body, []byte(c.Message)...)
 
