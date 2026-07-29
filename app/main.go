@@ -26,8 +26,11 @@ func main() {
 		fmt.Print(out)
 
 	case "hash-object":
-		hash := git.HashObject(os.Args[3])
+		hash, err := git.HashObject(os.Args[3])
 
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "hash object error: %s", err.Error())
+		}
 		fmt.Println(hash)
 
 	case "ls-tree":

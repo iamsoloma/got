@@ -58,35 +58,68 @@ func CatFile(objectSha string) string {
 	return string(s)
 }
 
-func HashObject(filename string) string {
+func HashObject(filename string) (sha string, err error) {
 	content, err := os.ReadFile(filename)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s", err.Error())
+		return sha, fmt.Errorf("can`t read a file: %s", err.Error())
 	}
 
 	object := fmt.Sprintf("blob %d\x00%s", len(content), content)
-	sha := fmt.Sprintf("%x", sha1.Sum([]byte(object)))
+	sha = fmt.Sprintf("%x", sha1.Sum([]byte(object)))
 
 	path := fmt.Sprintf(".git/objects/%s/%s", sha[:2], sha[2:])
 	err = os.MkdirAll(filepath.Dir(path), os.ModePerm)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s", err.Error())
+		return sha, fmt.Errorf("can`t create a subdirs: %s", err.Error())
 	}
 
-	file, err := os.Create(path)
+	// Object is exist?
+	_, err = os.Stat(path)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s", err.Error())
+		// No
+		if errors.Is(err, os.ErrNotExist) {
+			// Create a new object
+			file, err := os.Create(path)
+			if err != nil {
+				return sha, fmt.Errorf("can`t create a file: %s", err.Error())
+			}
+			defer file.Close()
+
+			writer := zlib.NewWriter(file)
+			defer writer.Close()
+			_, err = writer.Write([]byte(object))
+			if err != nil {
+				return sha, fmt.Errorf("can`t write in file: %s", err.Error())
+			}
+
+			return sha, nil
+		}
+		return sha, fmt.Errorf("can`t stat object file: %s", err.Error())
+	}
+
+	// Yes, read him
+	file, err := os.Open(path)
+	if err != nil {
+		return sha, fmt.Errorf("can`t open existing object: %s", err.Error())
 	}
 	defer file.Close()
 
-	writer := zlib.NewWriter(file)
-	defer writer.Close()
-	_, err = writer.Write([]byte(object))
+	r, err := zlib.NewReader(file)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s", err.Error())
+		return sha, fmt.Errorf("can`t read existing object: %s", err.Error())
+	}
+	existing, err := io.ReadAll(r)
+	r.Close()
+	if err != nil {
+		return sha, fmt.Errorf("can`t read existing object: %s", err.Error())
 	}
 
-	return sha
+	// Comparing the contents of the current object with the new one
+	if !bytes.Equal(existing, []byte(object)) {
+		return sha, fmt.Errorf("hash collision: object %s already exists with different content", sha)
+	}
+
+	return sha, nil
 }
 
 type Node struct {
@@ -200,7 +233,10 @@ func CreateTree(dirPath string) ([]Node, error) {
 			if checkIgnore(file.Name(), gitignore) {
 				continue
 			}
-			sha := HashObject(dirPath + "/" + file.Name())
+			sha, err := HashObject(dirPath + "/" + file.Name())
+			if err != nil {
+				return []Node{}, err
+			}
 			mode, err := GetMode(dirPath + "/" + file.Name())
 			if err != nil {
 				return []Node{}, err

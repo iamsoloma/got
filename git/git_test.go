@@ -2,6 +2,7 @@ package git
 
 import (
 	"bytes"
+	"compress/zlib"
 	"fmt"
 	"os"
 	"os/exec"
@@ -123,7 +124,10 @@ func TestHashObject(t *testing.T) {
 	expectedSHA := runGit(t, "hash-object", "-w", "test.txt")
 
 	// Get SHA from got
-	actualSHA := HashObject("test.txt")
+	actualSHA, err := HashObject("test.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if expectedSHA != actualSHA {
 		t.Errorf("HashObject SHA mismatch:\n  expected: %s\n  actual:   %s", expectedSHA, actualSHA)
@@ -137,7 +141,10 @@ func TestHashObject_EmptyFile(t *testing.T) {
 	createFile(t, "empty.txt", "")
 
 	expectedSHA := runGit(t, "hash-object", "-w", "empty.txt")
-	actualSHA := HashObject("empty.txt")
+	actualSHA, err := HashObject("empty.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if expectedSHA != actualSHA {
 		t.Errorf("HashObject (empty file) SHA mismatch:\n  expected: %s\n  actual:   %s", expectedSHA, actualSHA)
@@ -154,10 +161,49 @@ func TestHashObject_BinaryFile(t *testing.T) {
 	}
 
 	expectedSHA := runGit(t, "hash-object", "-w", "binary.bin")
-	actualSHA := HashObject("binary.bin")
+	actualSHA, err := HashObject("binary.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if expectedSHA != actualSHA {
 		t.Errorf("HashObject (binary) SHA mismatch:\n  expected: %s\n  actual:   %s", expectedSHA, actualSHA)
+	}
+}
+
+func TestHashObject_ExistingDifferentObjectCollision(t *testing.T) {
+	_, cleanup := setupGitRepo(t)
+	defer cleanup()
+
+	content := "hello world\n"
+	createFile(t, "test.txt", content)
+
+	sha, err := HashObject("test.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	path := fmt.Sprintf(".git/objects/%s/%s", sha[:2], sha[2:])
+	fakeObject := []byte("blob 8\x00badstuff")
+	var buf bytes.Buffer
+	zw := zlib.NewWriter(&buf)
+	if _, err := zw.Write(fakeObject); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(path, buf.Bytes(), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = HashObject("test.txt")
+	if err == nil {
+		t.Fatal("expected hash collision error, got nil")
+	}
+	if !strings.Contains(err.Error(), "hash collision") {
+		t.Fatalf("expected hash collision error, got %v", err)
 	}
 }
 
@@ -846,7 +892,10 @@ func TestFullWorkflow(t *testing.T) {
 	files := []string{"README.md", "main.go", "lib/helper.go"}
 	for _, f := range files {
 		expectedSHA := runGit(t, "hash-object", "-w", f)
-		actualSHA := HashObject(f)
+		actualSHA, err := HashObject(f)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if expectedSHA != actualSHA {
 			t.Errorf("FullWorkflow: HashObject(%s) mismatch:\n  expected: %s\n  actual:   %s", f, expectedSHA, actualSHA)
 		}
