@@ -34,7 +34,6 @@ func Init() {
 }
 
 func CatFile(objectSha string) string {
-
 	path := fmt.Sprintf(".git/objects/%s/%s", objectSha[:2], objectSha[2:])
 
 	file, err := os.Open(path)
@@ -60,13 +59,13 @@ func CatFile(objectSha string) string {
 	return res
 }
 
-func HashObject(filename string) (sha string, err error) {
-	content, err := os.ReadFile(filename)
-	if err != nil {
-		return sha, fmt.Errorf("can`t read a file: %s", err.Error())
-	}
+// Write blob object
+func HashObject(content []byte) (sha string, err error) {
+	return WriteObject(content, "blob")
+}
 
-	object := fmt.Sprintf("blob %d\x00%s", len(content), content)
+func WriteObject(content []byte, objectType string) (sha string, err error) {
+	object := fmt.Sprintf("%s %d\x00%s", objectType, len(content), content)
 	sha = fmt.Sprintf("%x", sha1.Sum([]byte(object)))
 
 	path := fmt.Sprintf(".git/objects/%s/%s", sha[:2], sha[2:])
@@ -235,7 +234,11 @@ func CreateTree(dirPath string) ([]Node, error) {
 			if checkIgnore(file.Name(), gitignore) {
 				continue
 			}
-			sha, err := HashObject(dirPath + "/" + file.Name())
+			content, err := os.ReadFile(dirPath + "/" + file.Name())
+			if err != nil {
+				return []Node{}, err
+			}
+			sha, err := HashObject(content)
 			if err != nil {
 				return []Node{}, err
 			}
@@ -259,7 +262,7 @@ func CreateTree(dirPath string) ([]Node, error) {
 
 }
 
-func WriteTree(dirPath string) (string, error) {
+func WriteTree(dirPath string) (treeSHA string, err error) {
 	nodes, err := CreateTree(dirPath)
 	if err != nil {
 		return "", err
@@ -268,7 +271,7 @@ func WriteTree(dirPath string) (string, error) {
 	var treeContent bytes.Buffer
 
 	for _, node := range nodes {
-		treeContent.WriteString(node.Mode.String())
+		treeContent.WriteString(strings.TrimLeft(node.Mode.String(), "0"))
 		treeContent.WriteByte(' ')
 		treeContent.WriteString(node.Name)
 		treeContent.WriteByte(0)
@@ -280,28 +283,9 @@ func WriteTree(dirPath string) (string, error) {
 		treeContent.Write(shaBytes)
 	}
 
-	treeHeader := fmt.Sprintf("tree %d\x00", treeContent.Len())
-	object := append([]byte(treeHeader), treeContent.Bytes()...)
-
-	treeSHA := fmt.Sprintf("%x", sha1.Sum(object))
-
-	path := fmt.Sprintf(".git/objects/%s/%s", treeSHA[:2], treeSHA[2:])
-	err = os.MkdirAll(filepath.Dir(path), os.ModePerm)
+	treeSHA, err = WriteObject(treeContent.Bytes(), "tree")
 	if err != nil {
-		return "", err
-	}
-
-	file, err := os.Create(path)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-
-	writer := zlib.NewWriter(file)
-	defer writer.Close()
-	_, err = writer.Write(object)
-	if err != nil {
-		return "", err
+		return treeSHA, errors.New("can`t write tree object: " + err.Error())
 	}
 
 	return treeSHA, nil

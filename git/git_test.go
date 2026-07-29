@@ -124,7 +124,7 @@ func TestHashObject(t *testing.T) {
 	expectedSHA := runGit(t, "hash-object", "-w", "test.txt")
 
 	// Get SHA from got
-	actualSHA, err := HashObject("test.txt")
+	actualSHA, err := HashObject([]byte(content))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestHashObject_EmptyFile(t *testing.T) {
 	createFile(t, "empty.txt", "")
 
 	expectedSHA := runGit(t, "hash-object", "-w", "empty.txt")
-	actualSHA, err := HashObject("empty.txt")
+	actualSHA, err := HashObject([]byte(""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,11 @@ func TestHashObject_BinaryFile(t *testing.T) {
 	}
 
 	expectedSHA := runGit(t, "hash-object", "-w", "binary.bin")
-	actualSHA, err := HashObject("binary.bin")
+	content, err := os.ReadFile("binary.bin")
+	if err != nil {
+		t.Errorf("can`t read a file: %s", err.Error())
+	}
+	actualSHA, err := HashObject(content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +182,11 @@ func TestHashObject_ExistingDifferentObjectCollision(t *testing.T) {
 	content := "hello world\n"
 	createFile(t, "test.txt", content)
 
-	sha, err := HashObject("test.txt")
+	file, err := os.ReadFile("test.txt")
+	if err != nil {
+		t.Errorf("can`t read a file: %s", err.Error())
+	}
+	sha, err := HashObject(file)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +206,11 @@ func TestHashObject_ExistingDifferentObjectCollision(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = HashObject("test.txt")
+	file, err = os.ReadFile("test.txt")
+	if err != nil {
+		t.Errorf("can`t read a file: %s", err.Error())
+	}
+	_, err = HashObject(file)
 	if err == nil {
 		t.Fatal("expected hash collision error, got nil")
 	}
@@ -226,7 +238,7 @@ func TestCatFile(t *testing.T) {
 	// Get content from got
 	gotRaw := CatFile(sha)
 
-	if expectedContent != gotRaw{
+	if expectedContent != gotRaw {
 		t.Errorf("CatFile content mismatch:\n  expected: %q\n  actual:   %q", expectedContent, gotRaw)
 	}
 }
@@ -285,7 +297,7 @@ func TestLsTree_WithSubdirectory(t *testing.T) {
 	treeSHA := runGit(t, "write-tree")
 
 	// Get tree listing from real git
-	expectedOutput := runGit(t, "ls-tree", treeSHA)
+	expectedOutput := runGit(t, "ls-tree", treeSHA) + "\n"
 
 	// Get tree listing from got
 	nodes, err := LsTree(treeSHA)
@@ -295,14 +307,15 @@ func TestLsTree_WithSubdirectory(t *testing.T) {
 
 	var gotBuf bytes.Buffer
 	for _, node := range nodes {
-		modeStr := strings.TrimLeft(node.Mode.String(), "0")
+		//modeStr := node.Mode.String()
 		objType := "blob"
 		if node.Mode == Dir {
 			objType = "tree"
 		}
-		gotBuf.WriteString(fmt.Sprintf("%s %s %s\t%s\n", modeStr, objType, node.Sha1, node.Name))
+		stroke, _ := strings.CutPrefix(fmt.Sprintf("%s %s %s\t%s\n", node.Mode, objType, node.Sha1, node.Name), "0")
+		gotBuf.WriteString(stroke)
 	}
-	gotOutput := strings.TrimSpace(gotBuf.String())
+	gotOutput := gotBuf.String()
 
 	if expectedOutput != gotOutput {
 		t.Errorf("LsTree (with subdir) mismatch:\n  expected:\n%s\n  actual:\n%s", expectedOutput, gotOutput)
@@ -886,7 +899,12 @@ func TestFullWorkflow(t *testing.T) {
 	files := []string{"README.md", "main.go", "lib/helper.go"}
 	for _, f := range files {
 		expectedSHA := runGit(t, "hash-object", "-w", f)
-		actualSHA, err := HashObject(f)
+
+		content, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		actualSHA, err := HashObject(content)
 		if err != nil {
 			t.Fatal(err)
 		}

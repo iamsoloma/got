@@ -26,7 +26,11 @@ func main() {
 		fmt.Print(out)
 
 	case "hash-object":
-		hash, err := git.HashObject(os.Args[3])
+		content, err := os.ReadFile(os.Args[3])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "can`t read a file: %s", err.Error())
+		}
+		hash, err := git.HashObject(content)
 
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "hash object error: %s", err.Error())
