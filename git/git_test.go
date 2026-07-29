@@ -226,14 +226,8 @@ func TestCatFile(t *testing.T) {
 	// Get content from got
 	gotRaw := CatFile(sha)
 
-	// CatFile returns "blob <size>\x00<content>", extract content
-	parts := strings.SplitN(gotRaw, "\x00", 2)
-	if len(parts) != 2 {
-		t.Fatalf("CatFile: unexpected output format: %q", gotRaw)
-	}
-
-	if expectedContent != parts[1] {
-		t.Errorf("CatFile content mismatch:\n  expected: %q\n  actual:   %q", expectedContent, parts[1])
+	if expectedContent != gotRaw{
+		t.Errorf("CatFile content mismatch:\n  expected: %q\n  actual:   %q", expectedContent, gotRaw)
 	}
 }
 

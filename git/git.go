@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"got/utils"
+	"strings"
 
 	"io"
 	"os"
@@ -51,11 +52,12 @@ func CatFile(objectSha string) string {
 		fmt.Fprintf(os.Stderr, "%s", err.Error())
 	}
 
-	//parts := strings.Split(string(s), "\x00")
+	parts := strings.Split(string(s), "\x00")
+	res, _ := strings.CutSuffix(parts[1], "\n")
 
 	r.Close()
 
-	return string(s)
+	return res
 }
 
 func HashObject(filename string) (sha string, err error) {
