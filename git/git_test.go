@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 )
 
 const (
@@ -40,6 +39,9 @@ func setupGitRepo(t *testing.T) (repoDir string, cleanup func()) {
 		os.RemoveAll(dir)
 		t.Fatal(err)
 	}
+
+	// Configure default branch
+	exec.Command("git", "config", "--global", "init.defaultBranch", "main")
 
 	// Initialize git repo using real git
 	cmd := exec.Command("git", "init")
@@ -73,6 +75,7 @@ func setupGitRepo(t *testing.T) (repoDir string, cleanup func()) {
 		os.Chdir(origDir)
 		os.RemoveAll(dir)
 		os.Unsetenv("GIT_COMMITTER_DATE")
+		os.Unsetenv("GIT_AUTHOR_DATE")
 	}
 
 	return dir, cleanup
@@ -614,7 +617,6 @@ func TestReadAnnotatedTag(t *testing.T) {
 	runGit(t, "add", ".")
 	treeSHA := runGit(t, "write-tree")
 	commitSHA := runGit(t, "commit-tree", treeSHA, "-m", "test")
-	_, timezoneOffset := time.Now().Zone()
 
 	// Create annotated tag using real git
 	runGit(t, "tag", "-a", "v1.0-annotated", "-m", "annotated tag message", commitSHA)
@@ -640,8 +642,8 @@ func TestReadAnnotatedTag(t *testing.T) {
 	if tag.Tagger.Name != name {
 		t.Errorf("ReadAnnotatedTag tagger name mismatch:\n  expected: %s\n  actual:   %s", name, tag.Tagger.Name)
 	}
-	if tag.Tagger.Timezone != timezoneOffset {
-		t.Errorf("ReadAnnotatedTag tagger timezone mismatch:\n  expected: %d\n  actual:   %d", timezoneOffset, tag.Tagger.Timezone)
+	if tag.Tagger.Timezone != timezone {
+		t.Errorf("ReadAnnotatedTag tagger timezone mismatch:\n  expected: %d\n  actual:   %d", timezone, tag.Tagger.Timezone)
 	}
 	if tag.Message != "annotated tag message" {
 		t.Errorf("ReadAnnotatedTag message mismatch:\n  expected: annotated tag message\n  actual:   %s", tag.Message)
