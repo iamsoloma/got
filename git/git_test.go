@@ -4,16 +4,20 @@ import (
 	"bytes"
 	"compress/zlib"
 	"fmt"
+	"got/utils"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
 
 const (
-	email = "test@example.com"
-	name  = "Test User"
+	email     = "test@example.com"
+	name      = "Test User"
+	timestamp = int64(1785415052)
+	timezone  = 18000
 )
 
 // setupGitRepo creates a temp directory, initializes a real git repo,
@@ -49,9 +53,26 @@ func setupGitRepo(t *testing.T) (repoDir string, cleanup func()) {
 	exec.Command("git", "config", "user.email", email).Run()
 	exec.Command("git", "config", "user.name", name).Run()
 
+	// Set date for commits
+	ts := strconv.FormatInt(timestamp, 10)
+	tz := utils.FormatTimezone(timezone)
+	err = os.Setenv("GIT_COMMITTER_DATE", tz+" "+ts)
+	if err != nil {
+		os.Chdir(origDir)
+		os.RemoveAll(dir)
+		t.Fatalf("GIT_COMMITTER_DATE editing error: %v", err)
+	}
+	err = os.Setenv("GIT_AUTHOR_DATE", tz+" "+ts)
+	if err != nil {
+		os.Chdir(origDir)
+		os.RemoveAll(dir)
+		t.Fatalf("GIT_AUTHOR_DATE editing error: %v", err)
+	}
+
 	cleanup = func() {
 		os.Chdir(origDir)
 		os.RemoveAll(dir)
+		os.Unsetenv("GIT_COMMITTER_DATE")
 	}
 
 	return dir, cleanup
@@ -392,14 +413,14 @@ func TestCommitTree(t *testing.T) {
 		Author: Author{
 			Name:      "Test User",
 			Email:     "test@example.com",
-			Timestamp: 1700000000,
-			Timezone:  0,
+			Timestamp: timestamp,
+			Timezone:  timezone,
 		},
 		Committer: Committer{
 			Name:      "Test User",
 			Email:     "test@example.com",
-			Timestamp: 1700000000,
-			Timezone:  0,
+			Timestamp: timestamp,
+			Timezone:  timezone,
 		},
 	}
 
@@ -437,14 +458,14 @@ func TestCommitTree_WithParent(t *testing.T) {
 		Author: Author{
 			Name:      "Test User",
 			Email:     "test@example.com",
-			Timestamp: 1700000001,
-			Timezone:  0,
+			Timestamp: timestamp,
+			Timezone:  timezone,
 		},
 		Committer: Committer{
 			Name:      "Test User",
 			Email:     "test@example.com",
-			Timestamp: 1700000001,
-			Timezone:  0,
+			Timestamp: timestamp,
+			Timezone:  timezone,
 		},
 	}
 
@@ -932,14 +953,14 @@ func TestFullWorkflow(t *testing.T) {
 		Author: Author{
 			Name:      "Test User",
 			Email:     "test@example.com",
-			Timestamp: 1700000000,
-			Timezone:  0,
+			Timestamp: timestamp,
+			Timezone:  timezone,
 		},
 		Committer: Committer{
 			Name:      "Test User",
 			Email:     "test@example.com",
-			Timestamp: 1700000000,
-			Timezone:  0,
+			Timestamp: timestamp,
+			Timezone:  timezone,
 		},
 	}
 	actualCommitSHA, err := CommitTree(commit)

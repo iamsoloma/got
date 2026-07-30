@@ -323,28 +323,11 @@ func CommitTree(c Commit) (sha string, err error) {
 	body = append(body, fmt.Appendf(nil, "author %s <%s> %d %s\n", c.Author.Name, c.Author.Email, c.Author.Timestamp, utils.FormatTimezone(c.Author.Timezone))...)
 	body = append(body, fmt.Appendf(nil, "committer %s <%s> %d %s\n", c.Committer.Name, c.Committer.Email, c.Committer.Timestamp, utils.FormatTimezone(c.Committer.Timezone))...)
 	body = append(body, fmt.Appendf(nil, "\n")...)
-	body = append(body, []byte(c.Message)...)
+	body = append(body, []byte(c.Message+"\n")...)
 
-	object := fmt.Sprintf("commit %d\x00%s", len(body), body)
-	sha = fmt.Sprintf("%x", sha1.Sum([]byte(object)))
-
-	path := fmt.Sprintf(".git/objects/%s/%s", sha[:2], sha[2:])
-	err = os.MkdirAll(filepath.Dir(path), os.ModePerm)
+	sha, err = WriteObject(body, "commit")
 	if err != nil {
-		return "", err
-	}
-
-	file, err := os.Create(path)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-
-	writer := zlib.NewWriter(file)
-	defer writer.Close()
-	_, err = writer.Write([]byte(object))
-	if err != nil {
-		return "", err
+		return sha, errors.New("can`t write commit object: " + err.Error())
 	}
 
 	return sha, nil
