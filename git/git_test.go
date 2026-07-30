@@ -41,7 +41,7 @@ func setupGitRepo(t *testing.T) (repoDir string, cleanup func()) {
 	}
 
 	// Configure default branch
-	exec.Command("git", "config", "--global", "init.defaultBranch", "main")
+	exec.Command("git", "config", "--global", "init.defaultBranch", "main").Run()
 
 	// Initialize git repo using real git
 	cmd := exec.Command("git", "init")
