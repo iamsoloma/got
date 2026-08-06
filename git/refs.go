@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"got/utils"
 	"io"
-	"os"
 	"strconv"
 	"strings"
 )
@@ -17,37 +16,16 @@ type Head struct {
 }
 
 func ReadHead() (Head, error) {
-	path := "./.git/HEAD"
-	file, err := os.Open(path)
+	content, err := DefaultStorage.ReadHead()
 	if err != nil {
 		return Head{}, err
 	}
-	defer file.Close()
-
-	content, err := io.ReadAll(file)
-	if err != nil {
-		return Head{}, err
-	}
-
 	ref, _ := strings.CutPrefix(string(content), "ref: ")
-
 	return Head{Ref: ref}, nil
 }
 
 func UpdateHead(ref string) error {
-	path := "./.git/HEAD"
-	file, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	_, err = file.WriteString(fmt.Sprintf("ref: %s", ref))
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return DefaultStorage.WriteHead([]byte(fmt.Sprintf("ref: %s", ref)))
 }
 
 type Reference struct {
@@ -56,22 +34,14 @@ type Reference struct {
 }
 
 func ListLocalBranches() ([]Reference, error) {
-	path := "./.git/refs/heads"
-	dir, err := os.Open(path)
+	names, err := DefaultStorage.ListRefs("heads")
 	if err != nil {
 		return nil, err
 	}
-	defer dir.Close()
 
-	// Read the directory recursively to get all branch references
 	var branches []Reference
-	files, err := listDirectory(path)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, file := range files {
-		ref, err := ReadReference(strings.TrimLeft(file, ".git/refs/"))
+	for _, name := range names {
+		ref, err := ReadReference(name)
 		if err != nil {
 			return nil, err
 		}
@@ -81,69 +51,21 @@ func ListLocalBranches() ([]Reference, error) {
 	return branches, nil
 }
 
-func listDirectory(path string) (files []string, err error) {
-	entries, err := os.ReadDir(path)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			subDir := fmt.Sprintf("%s/%s", path, entry.Name())
-			subFiles, err := listDirectory(subDir)
-			if err != nil {
-				return nil, err
-			}
-			files = append(files, subFiles...)
-		} else {
-			files = append(files, fmt.Sprintf("%s/%s", path, entry.Name()))
-		}
-	}
-
-	return files, nil
-
-}
-
 func UpdateReference(ref Reference) error {
-	path := fmt.Sprintf(".git/refs/%s", ref.Name)
-	file, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	_, err = file.WriteString(ref.Sha1)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return DefaultStorage.WriteRef(ref.Name, []byte(ref.Sha1))
 }
 
 func ReadReference(name string) (Reference, error) {
-	path := fmt.Sprintf(".git/refs/%s", name)
-	file, err := os.Open(path)
+	content, err := DefaultStorage.ReadRef(name)
 	if err != nil {
 		return Reference{}, err
 	}
-	defer file.Close()
-
-	content, err := io.ReadAll(file)
-	if err != nil {
-		return Reference{}, err
-	}
-
 	sha := strings.ReplaceAll(string(content), "\n", "")
-
 	return Reference{Name: name, Sha1: sha}, nil
 }
 
 func CreateTag(name, sha string) error {
-	err := UpdateReference(Reference{Name: "/tags/" + name, Sha1: sha})
-	if err != nil {
-		return err
-	}
-	return nil
+	return UpdateReference(Reference{Name: "/tags/" + name, Sha1: sha})
 }
 
 func ReadTag(name string) (Reference, error) {
@@ -173,29 +95,28 @@ type Tagger struct {
 func ReadAnnotatedTag(name string) (tag AnnotatedTag, err error) {
 	tag.Name = name
 
-	//read file
+	// Read the ref to get the tag object SHA.
 	ref, err := ReadReference("/tags/" + name)
 	if err != nil {
 		return tag, err
 	}
 
-	path := fmt.Sprintf(".git/objects/%s/%s", ref.Sha1[:2], ref.Sha1[2:])
-	file, err := os.Open(path)
+	// Read and decompress the tag object via Storage.
+	rc, err := DefaultStorage.ReadObject(ref.Sha1)
 	if err != nil {
 		return tag, err
 	}
-	defer file.Close()
-
-	r, err := zlib.NewReader(file)
+	r, err := zlib.NewReader(rc)
 	if err != nil {
+		rc.Close()
 		return tag, err
 	}
-
 	content, err := io.ReadAll(r)
+	r.Close()
+	rc.Close()
 	if err != nil {
 		return tag, err
 	}
-	r.Close()
 
 	//read object type
 	tagHeader := []byte("tag ")

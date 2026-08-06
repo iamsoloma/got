@@ -12,54 +12,46 @@ import (
 
 	"io"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 )
 
 func Init() {
-
-	for _, dir := range []string{".git", ".git/objects", ".git/refs"} {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating directory: %s\n", err)
-		}
+	if err := DefaultStorage.InitDirs(); err != nil {
+		fmt.Fprintf(os.Stderr, "%s\n", err)
+		return
 	}
-
-	headFileContents := []byte("ref: refs/heads/main\n")
-	if err := os.WriteFile(".git/HEAD", headFileContents, 0644); err != nil {
-		fmt.Fprintf(os.Stderr, "Error writing file: %s\n", err)
-	}
-
 	fmt.Println("Initialized git directory")
 }
 
 func CatFile(objectSha string) string {
-	path := fmt.Sprintf(".git/objects/%s/%s", objectSha[:2], objectSha[2:])
-
-	file, err := os.Open(path)
+	rc, err := DefaultStorage.ReadObject(objectSha)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s", err.Error())
+		return ""
 	}
+	defer rc.Close()
 
-	r, err := zlib.NewReader(file)
+	r, err := zlib.NewReader(rc)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s", err.Error())
+		return ""
 	}
+	defer r.Close()
 
 	s, err := io.ReadAll(r)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s", err.Error())
+		return ""
 	}
 
 	parts := strings.Split(string(s), "\x00")
 	res, _ := strings.CutSuffix(parts[1], "\n")
 
-	r.Close()
-
 	return res
 }
 
-// Write blob object
+// HashObject writes a blob object and returns its SHA.
 func HashObject(content []byte) (sha string, err error) {
 	return WriteObject(content, "blob")
 }
@@ -68,54 +60,46 @@ func WriteObject(content []byte, objectType string) (sha string, err error) {
 	object := fmt.Sprintf("%s %d\x00%s", objectType, len(content), content)
 	sha = fmt.Sprintf("%x", sha1.Sum([]byte(object)))
 
-	path := fmt.Sprintf(".git/objects/%s/%s", sha[:2], sha[2:])
-	err = os.MkdirAll(filepath.Dir(path), os.ModePerm)
+	// Compress the object into a buffer first.
+	var buf bytes.Buffer
+	zw := zlib.NewWriter(&buf)
+	if _, err = zw.Write([]byte(object)); err != nil {
+		return sha, fmt.Errorf("can't compress object: %s", err.Error())
+	}
+	if err = zw.Close(); err != nil {
+		return sha, fmt.Errorf("can't finalize compressed object: %s", err.Error())
+	}
+	compressed := buf.Bytes()
+
+	exists, err := DefaultStorage.StatObject(sha)
 	if err != nil {
-		return sha, fmt.Errorf("can`t create a subdirs: %s", err.Error())
+		return sha, fmt.Errorf("can't stat object file: %s", err.Error())
 	}
 
-	// Object is exist?
-	_, err = os.Stat(path)
-	if err != nil {
-		// No
-		if errors.Is(err, os.ErrNotExist) {
-			// Create a new object
-			file, err := os.Create(path)
-			if err != nil {
-				return sha, fmt.Errorf("can`t create a file: %s", err.Error())
-			}
-			defer file.Close()
-
-			writer := zlib.NewWriter(file)
-			defer writer.Close()
-			_, err = writer.Write([]byte(object))
-			if err != nil {
-				return sha, fmt.Errorf("can`t write in file: %s", err.Error())
-			}
-
-			return sha, nil
+	if !exists {
+		if err = DefaultStorage.WriteObject(sha, compressed); err != nil {
+			return sha, fmt.Errorf("can't create a file: %s", err.Error())
 		}
-		return sha, fmt.Errorf("can`t stat object file: %s", err.Error())
+		return sha, nil
 	}
 
-	// Yes, read him
-	file, err := os.Open(path)
+	// Object already exists — check for a hash collision.
+	rc, err := DefaultStorage.ReadObject(sha)
 	if err != nil {
-		return sha, fmt.Errorf("can`t open existing object: %s", err.Error())
+		return sha, fmt.Errorf("can't open existing object: %s", err.Error())
 	}
-	defer file.Close()
+	zr, err := zlib.NewReader(rc)
+	if err != nil {
+		rc.Close()
+		return sha, fmt.Errorf("can't read existing object: %s", err.Error())
+	}
+	existing, err := io.ReadAll(zr)
+	zr.Close()
+	rc.Close()
+	if err != nil {
+		return sha, fmt.Errorf("can't read existing object: %s", err.Error())
+	}
 
-	r, err := zlib.NewReader(file)
-	if err != nil {
-		return sha, fmt.Errorf("can`t read existing object: %s", err.Error())
-	}
-	existing, err := io.ReadAll(r)
-	r.Close()
-	if err != nil {
-		return sha, fmt.Errorf("can`t read existing object: %s", err.Error())
-	}
-
-	// Comparing the contents of the current object with the new one
 	if !bytes.Equal(existing, []byte(object)) {
 		return sha, fmt.Errorf("hash collision: object %s already exists with different content", sha)
 	}
@@ -130,14 +114,13 @@ type Node struct {
 }
 
 func LsTree(TreeSHA string) ([]Node, error) {
-	path := fmt.Sprintf(".git/objects/%s/%s", TreeSHA[:2], TreeSHA[2:])
-	file, err := os.Open(path)
+	rc, err := DefaultStorage.ReadObject(TreeSHA)
 	if err != nil {
 		return []Node{}, err
 	}
-	defer file.Close()
+	defer rc.Close()
 
-	r, err := zlib.NewReader(file)
+	r, err := zlib.NewReader(rc)
 	if err != nil {
 		return []Node{}, err
 	}
