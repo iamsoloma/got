@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/zlib"
 	"fmt"
+	"got/storage/filesystem"
 	"got/utils"
 	"os"
 	"os/exec"
@@ -110,7 +111,11 @@ func TestInit(t *testing.T) {
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	Init()
+	storage := &filesystem.FileSystemStorage{}
+	_, err := Init(storage, "./", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Check that required directories exist
 	for _, d := range []string{".git", ".git/objects", ".git/refs"} {
@@ -148,7 +153,11 @@ func TestHashObject(t *testing.T) {
 	expectedSHA := runGit(t, "hash-object", "-w", "test.txt")
 
 	// Get SHA from got
-	actualSHA, err := HashObject([]byte(content))
+	repo, err := Open(&filesystem.FileSystemStorage{}, ".")
+	if err != nil {
+		t.Fatalf("can`t open a repo: %s", err.Error())
+	}
+	actualSHA, err := repo.HashObject([]byte(content))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +174,11 @@ func TestHashObject_EmptyFile(t *testing.T) {
 	createFile(t, "empty.txt", "")
 
 	expectedSHA := runGit(t, "hash-object", "-w", "empty.txt")
-	actualSHA, err := HashObject([]byte(""))
+	repo, err := Open(&filesystem.FileSystemStorage{}, ".")
+	if err != nil {
+		t.Fatalf("can`t open a repo: %s", err.Error())
+	}
+	actualSHA, err := repo.HashObject([]byte(""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +202,11 @@ func TestHashObject_BinaryFile(t *testing.T) {
 	if err != nil {
 		t.Errorf("can`t read a file: %s", err.Error())
 	}
-	actualSHA, err := HashObject(content)
+	repo, err := Open(&filesystem.FileSystemStorage{}, ".")
+	if err != nil {
+		t.Fatalf("can`t open a repo: %s", err.Error())
+	}
+	actualSHA, err := repo.HashObject(content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +217,7 @@ func TestHashObject_BinaryFile(t *testing.T) {
 }
 
 func TestHashObject_ExistingDifferentObjectCollision(t *testing.T) {
-	_, cleanup := setupGitRepo(t)
+	dir, cleanup := setupGitRepo(t)
 	defer cleanup()
 
 	content := "hello world\n"
@@ -210,7 +227,11 @@ func TestHashObject_ExistingDifferentObjectCollision(t *testing.T) {
 	if err != nil {
 		t.Errorf("can`t read a file: %s", err.Error())
 	}
-	sha, err := HashObject(file)
+	repo, err := Open(&filesystem.FileSystemStorage{}, dir)
+	if err != nil {
+		t.Fatalf("can`t open a repo: %s", err.Error())
+	}
+	sha, err := repo.HashObject(file)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +255,7 @@ func TestHashObject_ExistingDifferentObjectCollision(t *testing.T) {
 	if err != nil {
 		t.Errorf("can`t read a file: %s", err.Error())
 	}
-	_, err = HashObject(file)
+	_, err = repo.HashObject(file)
 	if err == nil {
 		t.Fatal("expected hash collision error, got nil")
 	}
@@ -248,7 +269,7 @@ func TestHashObject_ExistingDifferentObjectCollision(t *testing.T) {
 // ============================================================================
 
 func TestCatFile(t *testing.T) {
-	_, cleanup := setupGitRepo(t)
+	dir, cleanup := setupGitRepo(t)
 	defer cleanup()
 
 	content := "hello world\n"
@@ -259,8 +280,12 @@ func TestCatFile(t *testing.T) {
 	// Get content from real git (pretty-print)
 	expectedContent := runGit(t, "cat-file", "-p", sha)
 
+	repo, err := Open(&filesystem.FileSystemStorage{}, dir)
+	if err != nil {
+		t.Fatalf("can`t open a repo: %s", err.Error())
+	}
 	// Get content from got
-	gotRaw := CatFile(sha)
+	gotRaw := repo.CatFile(sha)
 
 	if expectedContent != gotRaw {
 		t.Errorf("CatFile content mismatch:\n  expected: %q\n  actual:   %q", expectedContent, gotRaw)
@@ -272,7 +297,7 @@ func TestCatFile(t *testing.T) {
 // ============================================================================
 
 func TestLsTree(t *testing.T) {
-	_, cleanup := setupGitRepo(t)
+	dir, cleanup := setupGitRepo(t)
 	defer cleanup()
 
 	// Create files and stage them
@@ -287,8 +312,12 @@ func TestLsTree(t *testing.T) {
 	// Get tree listing from real git
 	expectedOutput := runGit(t, "ls-tree", treeSHA)
 
+	repo, err := Open(&filesystem.FileSystemStorage{}, dir)
+	if err != nil {
+		t.Fatalf("can`t open a repo: %s", err.Error())
+	}
 	// Get tree listing from got
-	nodes, err := LsTree(treeSHA)
+	nodes, err := repo.LsTree(treeSHA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,7 +336,7 @@ func TestLsTree(t *testing.T) {
 }
 
 func TestLsTree_WithSubdirectory(t *testing.T) {
-	_, cleanup := setupGitRepo(t)
+	dir, cleanup := setupGitRepo(t)
 	defer cleanup()
 
 	// Create files including in subdirectory
@@ -323,8 +352,12 @@ func TestLsTree_WithSubdirectory(t *testing.T) {
 	// Get tree listing from real git
 	expectedOutput := runGit(t, "ls-tree", treeSHA) + "\n"
 
+	repo, err := Open(&filesystem.FileSystemStorage{}, dir)
+	if err != nil {
+		t.Fatalf("can`t open a repo: %s", err.Error())
+	}
 	// Get tree listing from got
-	nodes, err := LsTree(treeSHA)
+	nodes, err := repo.LsTree(treeSHA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -351,7 +384,7 @@ func TestLsTree_WithSubdirectory(t *testing.T) {
 // ============================================================================
 
 func TestWriteTree(t *testing.T) {
-	_, cleanup := setupGitRepo(t)
+	dir, cleanup := setupGitRepo(t)
 	defer cleanup()
 
 	createFile(t, "a.txt", "aaa\n")
@@ -362,8 +395,12 @@ func TestWriteTree(t *testing.T) {
 	// Get tree SHA from real git
 	expectedSHA := runGit(t, "write-tree")
 
+	repo, err := Open(&filesystem.FileSystemStorage{}, dir)
+	if err != nil {
+		t.Fatalf("can`t open a repo: %s", err.Error())
+	}
 	// Get tree SHA from got
-	actualSHA, err := WriteTree(".")
+	actualSHA, err := repo.WriteTree(".")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -374,7 +411,7 @@ func TestWriteTree(t *testing.T) {
 }
 
 func TestWriteTree_WithSubdirectory(t *testing.T) {
-	_, cleanup := setupGitRepo(t)
+	dir, cleanup := setupGitRepo(t)
 	defer cleanup()
 
 	createFile(t, "root.txt", "root\n")
@@ -384,7 +421,11 @@ func TestWriteTree_WithSubdirectory(t *testing.T) {
 	runGit(t, "add", ".")
 
 	expectedSHA := runGit(t, "write-tree")
-	actualSHA, err := WriteTree(".")
+	repo, err := Open(&filesystem.FileSystemStorage{}, dir)
+	if err != nil {
+		t.Fatalf("can`t open a repo: %s", err.Error())
+	}
+	actualSHA, err := repo.WriteTree(".")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -399,7 +440,7 @@ func TestWriteTree_WithSubdirectory(t *testing.T) {
 // ============================================================================
 
 func TestCommitTree(t *testing.T) {
-	_, cleanup := setupGitRepo(t)
+	dir, cleanup := setupGitRepo(t)
 	defer cleanup()
 
 	createFile(t, "file.txt", "content\n")
@@ -427,7 +468,11 @@ func TestCommitTree(t *testing.T) {
 		},
 	}
 
-	actualSHA, err := CommitTree(commit)
+	repo, err := Open(&filesystem.FileSystemStorage{}, dir)
+	if err != nil {
+		t.Fatalf("can`t open a repo: %s", err.Error())
+	}
+	actualSHA, err := repo.CommitTree(commit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -438,7 +483,7 @@ func TestCommitTree(t *testing.T) {
 }
 
 func TestCommitTree_WithParent(t *testing.T) {
-	_, cleanup := setupGitRepo(t)
+	dir, cleanup := setupGitRepo(t)
 	defer cleanup()
 
 	// First commit
@@ -472,7 +517,11 @@ func TestCommitTree_WithParent(t *testing.T) {
 		},
 	}
 
-	actualSHA, err := CommitTree(commit)
+	repo, err := Open(&filesystem.FileSystemStorage{}, dir)
+	if err != nil {
+		t.Fatalf("can`t open a repo: %s", err.Error())
+	}
+	actualSHA, err := repo.CommitTree(commit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -854,7 +903,7 @@ func TestListLocalBranches(t *testing.T) {
 // ============================================================================
 
 func TestCreateTree_Integration(t *testing.T) {
-	_, cleanup := setupGitRepo(t)
+	dir, cleanup := setupGitRepo(t)
 	defer cleanup()
 
 	// Create files
@@ -867,8 +916,12 @@ func TestCreateTree_Integration(t *testing.T) {
 	runGit(t, "add", ".")
 	expectedTreeSHA := runGit(t, "write-tree")
 
+	repo, err := Open(&filesystem.FileSystemStorage{}, dir)
+	if err != nil {
+		t.Fatalf("can`t open a repo: %s", err.Error())
+	}
 	// Write tree with got
-	actualTreeSHA, err := WriteTree(".")
+	actualTreeSHA, err := repo.WriteTree(".")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -878,11 +931,11 @@ func TestCreateTree_Integration(t *testing.T) {
 	}
 
 	// Compare tree contents
-	expectedNodes, err := LsTree(expectedTreeSHA)
+	expectedNodes, err := repo.LsTree(expectedTreeSHA)
 	if err != nil {
 		t.Fatal(err)
 	}
-	actualNodes, err := LsTree(actualTreeSHA)
+	actualNodes, err := repo.LsTree(actualTreeSHA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -909,7 +962,7 @@ func TestCreateTree_Integration(t *testing.T) {
 // ============================================================================
 
 func TestFullWorkflow(t *testing.T) {
-	_, cleanup := setupGitRepo(t)
+	dir, cleanup := setupGitRepo(t)
 	defer cleanup()
 
 	// Step 1: Create files
@@ -917,6 +970,11 @@ func TestFullWorkflow(t *testing.T) {
 	createFile(t, "main.go", "package main\n\nfunc main() {}\n")
 	os.MkdirAll("lib", 0755)
 	createFile(t, "lib/helper.go", "package lib\n\nfunc Help() {}\n")
+
+	repo, err := Open(&filesystem.FileSystemStorage{}, dir)
+	if err != nil {
+		t.Fatalf("can`t open a repo: %s", err.Error())
+	}
 
 	// Step 2: Hash objects and compare with real git
 	files := []string{"README.md", "main.go", "lib/helper.go"}
@@ -927,7 +985,7 @@ func TestFullWorkflow(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		actualSHA, err := HashObject(content)
+		actualSHA, err := repo.HashObject(content)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -939,7 +997,7 @@ func TestFullWorkflow(t *testing.T) {
 	// Step 3: Write tree and compare
 	runGit(t, "add", ".")
 	expectedTreeSHA := runGit(t, "write-tree")
-	actualTreeSHA, err := WriteTree(".")
+	actualTreeSHA, err := repo.WriteTree(".")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -965,7 +1023,7 @@ func TestFullWorkflow(t *testing.T) {
 			Timezone:  timezone,
 		},
 	}
-	actualCommitSHA, err := CommitTree(commit)
+	actualCommitSHA, err := repo.CommitTree(commit)
 	if err != nil {
 		t.Fatal(err)
 	}

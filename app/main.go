@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"got/git"
+	"got/storage/filesystem"
 	"os"
 	"time"
 )
@@ -14,14 +15,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	storage := &filesystem.FileSystemStorage{}
+	repo := &git.Repository{Storage: &filesystem.FileSystemStorage{}}
 	switch command := os.Args[1]; command {
 	case "init":
-		git.Init()
+		git.Init(storage, "./", "main")
 
 	case "cat-file":
 		sha := os.Args[3]
 
-		out := git.CatFile(sha)
+		out := repo.CatFile(sha)
 
 		fmt.Print(out)
 
@@ -30,7 +33,7 @@ func main() {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "can`t read a file: %s", err.Error())
 		}
-		hash, err := git.HashObject(content)
+		hash, err := repo.HashObject(content)
 
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "hash object error: %s", err.Error())
@@ -40,7 +43,7 @@ func main() {
 	case "ls-tree":
 		sha := os.Args[2]
 
-		nodes, err := git.LsTree(sha)
+		nodes, err := repo.LsTree(sha)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s", err.Error())
 		}
@@ -52,7 +55,7 @@ func main() {
 			fmt.Printf("%s %s %s %s\n", node.Mode, nodeType, node.Sha1, node.Name)
 		}
 	case "write-tree":
-		treeSHA, err := git.WriteTree(".")
+		treeSHA, err := repo.WriteTree(".")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s", err.Error())
 		}
@@ -85,7 +88,7 @@ func main() {
 			Committer: committer,
 		}
 
-		sha, err := git.CommitTree(commit)
+		sha, err := repo.CommitTree(commit)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s", err.Error())
 		}

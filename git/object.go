@@ -12,41 +12,23 @@ import (
 
 	"io"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 )
 
-func Init() {
-
-	for _, dir := range []string{".git", ".git/objects", ".git/refs"} {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating directory: %s\n", err)
-		}
-	}
-
-	headFileContents := []byte("ref: refs/heads/main\n")
-	if err := os.WriteFile(".git/HEAD", headFileContents, 0644); err != nil {
-		fmt.Fprintf(os.Stderr, "Error writing file: %s\n", err)
-	}
-
-	fmt.Println("Initialized git directory")
-}
-
-func CatFile(objectSha string) string {
-	path := fmt.Sprintf(".git/objects/%s/%s", objectSha[:2], objectSha[2:])
-
-	file, err := os.Open(path)
+// Read the contents of a file in the object storage and return it as a string
+func (r *Repository) CatFile(objectSha string) string {
+	file, err := r.Storage.ObjectReader(r.path, objectSha)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s", err.Error())
 	}
 
-	r, err := zlib.NewReader(file)
+	reader, err := zlib.NewReader(file)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s", err.Error())
 	}
 
-	s, err := io.ReadAll(r)
+	s, err := io.ReadAll(reader)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s", err.Error())
 	}
@@ -54,63 +36,56 @@ func CatFile(objectSha string) string {
 	parts := strings.Split(string(s), "\x00")
 	res, _ := strings.CutSuffix(parts[1], "\n")
 
-	r.Close()
+	reader.Close()
 
 	return res
 }
 
 // Write blob object
-func HashObject(content []byte) (sha string, err error) {
-	return WriteObject(content, "blob")
+func (r *Repository) HashObject(content []byte) (sha string, err error) {
+	return r.WriteObject(content, "blob")
 }
 
-func WriteObject(content []byte, objectType string) (sha string, err error) {
+func (r *Repository) WriteObject(content []byte, objectType string) (sha string, err error) {
 	object := fmt.Sprintf("%s %d\x00%s", objectType, len(content), content)
 	sha = fmt.Sprintf("%x", sha1.Sum([]byte(object)))
 
-	path := fmt.Sprintf(".git/objects/%s/%s", sha[:2], sha[2:])
-	err = os.MkdirAll(filepath.Dir(path), os.ModePerm)
+	// Object exists?
+	exists, err := r.Storage.ObjectExists(r.path, sha)
 	if err != nil {
-		return sha, fmt.Errorf("can`t create a subdirs: %s", err.Error())
-	}
-
-	// Object is exist?
-	_, err = os.Stat(path)
-	if err != nil {
-		// No
-		if errors.Is(err, os.ErrNotExist) {
-			// Create a new object
-			file, err := os.Create(path)
-			if err != nil {
-				return sha, fmt.Errorf("can`t create a file: %s", err.Error())
-			}
-			defer file.Close()
-
-			writer := zlib.NewWriter(file)
-			defer writer.Close()
-			_, err = writer.Write([]byte(object))
-			if err != nil {
-				return sha, fmt.Errorf("can`t write in file: %s", err.Error())
-			}
-
-			return sha, nil
-		}
 		return sha, fmt.Errorf("can`t stat object file: %s", err.Error())
 	}
 
-	// Yes, read him
-	file, err := os.Open(path)
+	if !exists {
+		file, err := r.Storage.ObjectWriter(r.path, sha, int64(len(object)))
+		if err != nil {
+			return sha, fmt.Errorf("can`t create an object: %s", err.Error())
+		}
+		defer file.Close()
+
+		writer := zlib.NewWriter(file)
+		defer writer.Close()
+		_, err = writer.Write([]byte(object))
+		if err != nil {
+			return sha, fmt.Errorf("can`t write in object: %s", err.Error())
+		}
+
+		return sha, nil
+	}
+
+	// Yes, read it
+	file, err := r.Storage.ObjectReader(r.path, sha)
 	if err != nil {
 		return sha, fmt.Errorf("can`t open existing object: %s", err.Error())
 	}
 	defer file.Close()
 
-	r, err := zlib.NewReader(file)
+	reader, err := zlib.NewReader(file)
 	if err != nil {
 		return sha, fmt.Errorf("can`t read existing object: %s", err.Error())
 	}
-	existing, err := io.ReadAll(r)
-	r.Close()
+	existing, err := io.ReadAll(reader)
+	reader.Close()
 	if err != nil {
 		return sha, fmt.Errorf("can`t read existing object: %s", err.Error())
 	}
@@ -129,24 +104,22 @@ type Node struct {
 	Sha1 string
 }
 
-func LsTree(TreeSHA string) ([]Node, error) {
-	path := fmt.Sprintf(".git/objects/%s/%s", TreeSHA[:2], TreeSHA[2:])
-	file, err := os.Open(path)
+func (r *Repository) LsTree(TreeSHA string) ([]Node, error) {
+	file, err := r.Storage.ObjectReader(r.path, TreeSHA)
 	if err != nil {
 		return []Node{}, err
 	}
 	defer file.Close()
 
-	r, err := zlib.NewReader(file)
+	reader, err := zlib.NewReader(file)
 	if err != nil {
 		return []Node{}, err
 	}
 
-	content, err := io.ReadAll(r)
+	content, err := io.ReadAll(reader)
 	if err != nil {
 		return []Node{}, err
 	}
-	r.Close()
 
 	treeHeader := []byte("tree ")
 	if !bytes.HasPrefix(content, treeHeader) {
@@ -200,7 +173,7 @@ func LsTree(TreeSHA string) ([]Node, error) {
 	return nodes, nil
 }
 
-func CreateTree(dirPath string) ([]Node, error) {
+func (r *Repository) CreateTree(dirPath string) ([]Node, error) {
 	files, err := os.ReadDir(dirPath)
 	if err != nil {
 		return []Node{}, err
@@ -221,7 +194,7 @@ func CreateTree(dirPath string) ([]Node, error) {
 				//fmt.Println("Ignoring directory: " + "/"+file.Name())
 				continue
 			}
-			sha, err := WriteTree(dirPath + "/" + file.Name())
+			sha, err := r.WriteTree(dirPath + "/" + file.Name())
 			if err != nil {
 				return []Node{}, err
 			}
@@ -238,7 +211,7 @@ func CreateTree(dirPath string) ([]Node, error) {
 			if err != nil {
 				return []Node{}, err
 			}
-			sha, err := HashObject(content)
+			sha, err := r.HashObject(content)
 			if err != nil {
 				return []Node{}, err
 			}
@@ -262,8 +235,8 @@ func CreateTree(dirPath string) ([]Node, error) {
 
 }
 
-func WriteTree(dirPath string) (treeSHA string, err error) {
-	nodes, err := CreateTree(dirPath)
+func (r *Repository) WriteTree(dirPath string) (treeSHA string, err error) {
+	nodes, err := r.CreateTree(dirPath)
 	if err != nil {
 		return "", err
 	}
@@ -283,7 +256,7 @@ func WriteTree(dirPath string) (treeSHA string, err error) {
 		treeContent.Write(shaBytes)
 	}
 
-	treeSHA, err = WriteObject(treeContent.Bytes(), "tree")
+	treeSHA, err = r.WriteObject(treeContent.Bytes(), "tree")
 	if err != nil {
 		return treeSHA, errors.New("can`t write tree object: " + err.Error())
 	}
@@ -314,7 +287,7 @@ type Committer struct {
 	Timezone  int
 }
 
-func CommitTree(c Commit) (sha string, err error) {
+func (r *Repository) CommitTree(c Commit) (sha string, err error) {
 	var body []byte
 	body = append(body, fmt.Appendf(nil, "tree %s\n", c.TreeSHA)...)
 	if c.ParentSHA != "" {
@@ -325,7 +298,7 @@ func CommitTree(c Commit) (sha string, err error) {
 	body = append(body, fmt.Appendf(nil, "\n")...)
 	body = append(body, []byte(c.Message+"\n")...)
 
-	sha, err = WriteObject(body, "commit")
+	sha, err = r.WriteObject(body, "commit")
 	if err != nil {
 		return sha, errors.New("can`t write commit object: " + err.Error())
 	}
