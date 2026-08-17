@@ -574,7 +574,7 @@ func TestUpdateHead(t *testing.T) {
 // ============================================================================
 
 func TestUpdateAndReadReference(t *testing.T) {
-	_, cleanup := setupGitRepo(t)
+	dir, cleanup := setupGitRepo(t)
 	defer cleanup()
 
 	// Create a commit to have a real SHA
@@ -583,17 +583,19 @@ func TestUpdateAndReadReference(t *testing.T) {
 	treeSHA := runGit(t, "write-tree")
 	commitSHA := runGit(t, "commit-tree", treeSHA, "-m", "test")
 
+	repo, err := Open(&filesystem.FileSystemStorage{}, dir)
+
 	// Update reference using got
 	ref := Reference{
 		Name: "heads/my-branch",
-		Sha1: commitSHA,
+		Body: commitSHA,
 	}
-	if err := UpdateReference(ref); err != nil {
+	if err := repo.UpdateReference(ref); err != nil {
 		t.Fatal(err)
 	}
 
 	// Read reference using got
-	readRef, err := ReadReference("heads/my-branch")
+	readRef, err := repo.ReadReference("heads/my-branch")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -601,8 +603,8 @@ func TestUpdateAndReadReference(t *testing.T) {
 	if readRef.Name != ref.Name {
 		t.Errorf("ReadReference name mismatch:\n  expected: %s\n  actual:   %s", ref.Name, readRef.Name)
 	}
-	if readRef.Sha1 != ref.Sha1 {
-		t.Errorf("ReadReference SHA mismatch:\n  expected: %s\n  actual:   %s", ref.Sha1, readRef.Sha1)
+	if readRef.Body != ref.Body {
+		t.Errorf("ReadReference SHA mismatch:\n  expected: %s\n  actual:   %s", ref.Body, readRef.Body)
 	}
 
 	// Verify with real git
@@ -617,7 +619,7 @@ func TestUpdateAndReadReference(t *testing.T) {
 // ============================================================================
 
 func TestCreateAndReadTag(t *testing.T) {
-	_, cleanup := setupGitRepo(t)
+	dir, cleanup := setupGitRepo(t)
 	defer cleanup()
 
 	// Create a commit
@@ -626,14 +628,15 @@ func TestCreateAndReadTag(t *testing.T) {
 	treeSHA := runGit(t, "write-tree")
 	commitSHA := runGit(t, "commit-tree", treeSHA, "-m", "test")
 
+	repo, err := Open(&filesystem.FileSystemStorage{}, dir)
 	tagName := "v1.0"
 	// Create tag using got
-	if err := CreateTag(tagName, commitSHA); err != nil {
+	if err := repo.CreateTag(Tag{tagName, commitSHA}); err != nil {
 		t.Fatal(err)
 	}
 
 	// Read tag using got
-	tag, err := ReadTag(tagName)
+	tag, err := repo.ReadTag(tagName)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -648,7 +651,7 @@ func TestCreateAndReadTag(t *testing.T) {
 	// Verify with real git
 	gitSHA := runGit(t, "rev-parse", tagName)
 	if gitSHA != commitSHA {
-		t.Errorf("Tag not found by real git:\n  expected: %s\n  actual:   %s", commitSHA, gitSHA)
+		t.Errorf("Tag not founqd by real git:\n  expected: %s\n  actual:   %s", commitSHA, gitSHA)
 	}
 }
 
@@ -657,8 +660,8 @@ func TestCreateAndReadTag(t *testing.T) {
 // ============================================================================
 
 func TestReadAnnotatedTag(t *testing.T) {
-	d, cleanup := setupGitRepo(t)
-	fmt.Println(d)
+	dir, cleanup := setupGitRepo(t)
+	fmt.Println(dir)
 	defer cleanup()
 
 	// Create a commit
@@ -670,8 +673,9 @@ func TestReadAnnotatedTag(t *testing.T) {
 	// Create annotated tag using real git
 	runGit(t, "tag", "-a", "v1.0-annotated", "-m", "annotated tag message", commitSHA)
 
+	repo, err := Open(&filesystem.FileSystemStorage{}, dir)
 	// Read annotated tag using got
-	tag, err := ReadAnnotatedTag("v1.0-annotated")
+	tag, err := repo.ReadAnnotatedTag("v1.0-annotated")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -865,7 +869,7 @@ func TestCheckIgnore(t *testing.T) {
 // ============================================================================
 
 func TestListLocalBranches(t *testing.T) {
-	_, cleanup := setupGitRepo(t)
+	dir, cleanup := setupGitRepo(t)
 	defer cleanup()
 
 	// Create a commit on main
@@ -878,8 +882,9 @@ func TestListLocalBranches(t *testing.T) {
 	// Create another branch
 	runGit(t, "branch", "feature-branch", commitSHA)
 
+	repo, err := Open(&filesystem.FileSystemStorage{}, dir)
 	// List branches using got
-	branches, err := ListLocalBranches()
+	branches, err := repo.ListLocalBranches()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1032,8 +1037,8 @@ func TestFullWorkflow(t *testing.T) {
 	}
 
 	// Step 5: Update reference and verify
-	ref := Reference{Name: "heads/main", Sha1: actualCommitSHA}
-	if err := UpdateReference(ref); err != nil {
+	ref := Reference{Name: "heads/main", Body: actualCommitSHA}
+	if err := repo.UpdateReference(ref); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1043,7 +1048,7 @@ func TestFullWorkflow(t *testing.T) {
 	}
 
 	// Step 6: Create tag and verify
-	if err := CreateTag("v1.0", actualCommitSHA); err != nil {
+	if err := repo.CreateTag(Tag{"v1.0", actualCommitSHA}); err != nil {
 		t.Fatal(err)
 	}
 	gitTagSHA := runGit(t, "rev-parse", "v1.0")

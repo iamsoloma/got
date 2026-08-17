@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 )
 
 type FileSystemStorage struct {
 	RepoPath string
 	ObjectStorage
+	ReferenceStorage
 }
 
 func (fs *FileSystemStorage) InitRepo(path, defaultBranch string) error {
@@ -59,9 +62,6 @@ func (fss *FileSystemStorage) initRepoReferenceStorage(defaultBranch string) err
 type ObjectStorage struct {
 }
 
-type ReferenceStorage struct {
-}
-
 func (fos *ObjectStorage) objectPath(repoPath, sha string) string {
 	return fmt.Sprintf("%s/.git/objects/%s/%s", repoPath, sha[:2], sha[2:])
 }
@@ -93,4 +93,110 @@ func (fos *ObjectStorage) ObjectExists(repoPath, sha1 string) (bool, error) {
 		return false, nil
 	}
 	return false, nil
+}
+
+type ReferenceStorage struct {
+}
+
+func normalizeRefName(refName string) string {
+	refName = strings.TrimPrefix(refName, "/")
+	refName = strings.TrimPrefix(refName, "refs/")
+	return filepath.Clean(refName)
+}
+
+func (frs *ReferenceStorage) SetReference(repoPath, refName string, body string) error {
+	//path := fmt.Sprintf(repoPath+"/.git/refs/%s", refName)
+	refName = normalizeRefName(refName)
+	path := filepath.Join(repoPath, ".git", "refs", refName)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	_, err = file.WriteString(body)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+func (frs *ReferenceStorage) GetReference(repoPath, name string) (body string, err error) {
+	//path := fmt.Sprintf(repoPath+"/.git/refs/%s", name)
+	name = normalizeRefName(name)
+	path := filepath.Join(repoPath, ".git", "refs", name)
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	content, err := io.ReadAll(file)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(content)), nil
+
+}
+func (frs *ReferenceStorage) ListReferences(repoPath string) (names []string, err error) {
+	//path := repoPath + "/.git/refs"
+	path := filepath.Join(repoPath, ".git", "refs")
+	dir, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer dir.Close()
+
+	files, err := listDirectory(path)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, file := range files {
+		//name := strings.TrimLeft(file, ".git/refs/")
+		relPath, err := filepath.Rel(path, file)
+		if err != nil {
+			return nil, err
+		}
+		name := filepath.ToSlash(relPath)
+		if name == "." {
+			continue
+		}
+		names = append(names, name)
+	}
+
+	return names, nil
+
+}
+func (frs *ReferenceStorage) DeleteReference(repoPath, name string) error {
+	path := repoPath + "/.git/refs/" + name
+	return os.Remove(path)
+
+}
+
+// Read the directory recursively to get all file`s paths
+func listDirectory(path string) (files []string, err error) {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			subDir := fmt.Sprintf("%s/%s", path, entry.Name())
+			subFiles, err := listDirectory(subDir)
+			if err != nil {
+				return nil, err
+			}
+			files = append(files, subFiles...)
+		} else {
+			files = append(files, fmt.Sprintf("%s/%s", path, entry.Name()))
+		}
+	}
+
+	return files, nil
+
 }

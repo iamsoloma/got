@@ -52,107 +52,61 @@ func UpdateHead(ref string) error {
 
 type Reference struct {
 	Name string
-	Sha1 string
+	Body string
+	//Sha1 string
 }
 
-func ListLocalBranches() ([]Reference, error) {
-	path := "./.git/refs/heads"
-	dir, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer dir.Close()
-
-	// Read the directory recursively to get all branch references
+func (r *Repository) ListLocalBranches() ([]Reference, error) {
 	var branches []Reference
-	files, err := listDirectory(path)
+	refsNames, err := r.Storage.ListReferences(r.path)
 	if err != nil {
 		return nil, err
 	}
 
-	for _, file := range files {
-		ref, err := ReadReference(strings.TrimLeft(file, ".git/refs/"))
+	for _, name := range refsNames {
+		ref, err := r.Storage.GetReference(r.path, name)
 		if err != nil {
 			return nil, err
 		}
-		branches = append(branches, ref)
+		branches = append(branches, Reference{Name: name, Body: ref})
 	}
 
 	return branches, nil
 }
 
-func listDirectory(path string) (files []string, err error) {
-	entries, err := os.ReadDir(path)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			subDir := fmt.Sprintf("%s/%s", path, entry.Name())
-			subFiles, err := listDirectory(subDir)
-			if err != nil {
-				return nil, err
-			}
-			files = append(files, subFiles...)
-		} else {
-			files = append(files, fmt.Sprintf("%s/%s", path, entry.Name()))
-		}
-	}
-
-	return files, nil
-
+func (r *Repository) UpdateReference(ref Reference) error {
+	return r.Storage.SetReference(r.path, ref.Name, ref.Body)
 }
 
-func UpdateReference(ref Reference) error {
-	path := fmt.Sprintf(".git/refs/%s", ref.Name)
-	file, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	_, err = file.WriteString(ref.Sha1)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func ReadReference(name string) (Reference, error) {
-	path := fmt.Sprintf(".git/refs/%s", name)
-	file, err := os.Open(path)
-	if err != nil {
-		return Reference{}, err
-	}
-	defer file.Close()
-
-	content, err := io.ReadAll(file)
+func (r *Repository) ReadReference(name string) (Reference, error) {
+	content, err := r.Storage.GetReference(r.path, name)
 	if err != nil {
 		return Reference{}, err
 	}
 
-	sha := strings.ReplaceAll(string(content), "\n", "")
-
-	return Reference{Name: name, Sha1: sha}, nil
+	return Reference{Name: name, Body: content}, nil
 }
 
-func CreateTag(name, sha string) error {
-	err := UpdateReference(Reference{Name: "/tags/" + name, Sha1: sha})
+type Tag struct {
+	Name string
+	Sha1 string
+}
+
+func (r *Repository) CreateTag(tag Tag) error {
+	err := r.Storage.SetReference(r.path, "/tags/"+tag.Name, tag.Sha1)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func ReadTag(name string) (Reference, error) {
-	ref, err := ReadReference("/tags/" + name)
+func (r *Repository) ReadTag(name string) (tag Tag, err error) {
+	tag.Sha1, err = r.Storage.GetReference(r.path, "/tags/"+name)
 	if err != nil {
-		return Reference{}, err
+		return tag, err
 	}
-	ref.Name = strings.Trim(ref.Name, "/tags")
-	return ref, nil
+	tag.Name = name
+	return tag, nil
 }
 
 type AnnotatedTag struct {
@@ -170,32 +124,30 @@ type Tagger struct {
 	Timezone  int
 }
 
-func ReadAnnotatedTag(name string) (tag AnnotatedTag, err error) {
+func (r *Repository) ReadAnnotatedTag(name string) (tag AnnotatedTag, err error) {
 	tag.Name = name
 
-	//read file
-	ref, err := ReadReference("/tags/" + name)
+	refBody, err := r.Storage.GetReference(r.path, "/tags/"+name)
 	if err != nil {
-		return tag, err
+		return tag, fmt.Errorf("can`t get reference: %s", err.Error())
 	}
 
-	path := fmt.Sprintf(".git/objects/%s/%s", ref.Sha1[:2], ref.Sha1[2:])
-	file, err := os.Open(path)
+	file, err := r.Storage.ObjectReader(r.path, refBody)
 	if err != nil {
-		return tag, err
+		return tag, fmt.Errorf("can`t open object: %s", err.Error())
 	}
 	defer file.Close()
 
-	r, err := zlib.NewReader(file)
+	reader, err := zlib.NewReader(file)
 	if err != nil {
 		return tag, err
 	}
 
-	content, err := io.ReadAll(r)
+	content, err := io.ReadAll(reader)
 	if err != nil {
 		return tag, err
 	}
-	r.Close()
+	reader.Close()
 
 	//read object type
 	tagHeader := []byte("tag ")
