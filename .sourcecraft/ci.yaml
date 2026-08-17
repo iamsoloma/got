@@ -7,7 +7,7 @@ on:
 workflows:
   test-workflow:
     tasks:
-      - name: test-task
+      - name: test
         cubes:
           - name: run-tests
             image: docker.io/library/golang:1.26
