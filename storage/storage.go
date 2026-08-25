@@ -17,6 +17,8 @@ type ObjectStorage interface {
 }
 
 type ReferenceStorage interface {
+	SetHEAD(repoPath, body string) error
+	GetHEAD(repoPath string) (body string, err error)
 	SetReference(repoPath, name string, body string) error
 	GetReference(repoPath, name string) (body string, err error)
 	ListReferences(repoPath string) (names []string, err error)

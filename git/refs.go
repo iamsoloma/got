@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"got/utils"
 	"io"
-	"os"
 	"strconv"
 	"strings"
 )
@@ -16,33 +15,21 @@ type Head struct {
 	Ref string
 }
 
-func ReadHead() (Head, error) {
-	path := "./.git/HEAD"
-	file, err := os.Open(path)
-	if err != nil {
-		return Head{}, err
-	}
-	defer file.Close()
-
-	content, err := io.ReadAll(file)
+func (r *Repository) ReadHead() (Head, error) {
+	body, err := r.Storage.GetHEAD(r.path)
 	if err != nil {
 		return Head{}, err
 	}
 
-	ref, _ := strings.CutPrefix(string(content), "ref: ")
+	ref, _ := strings.CutPrefix(body, "ref: ")
 
 	return Head{Ref: ref}, nil
 }
 
-func UpdateHead(ref string) error {
-	path := "./.git/HEAD"
-	file, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
+func (r *Repository) UpdateHead(ref string) error {
+	body := fmt.Sprintf("ref: %s", ref)
+	err := r.Storage.SetHEAD(r.path, body)
 
-	_, err = file.WriteString(fmt.Sprintf("ref: %s", ref))
 	if err != nil {
 		return err
 	}

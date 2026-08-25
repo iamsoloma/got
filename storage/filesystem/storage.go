@@ -104,6 +104,40 @@ func normalizeRefName(refName string) string {
 	return filepath.Clean(refName)
 }
 
+func (frs *ReferenceStorage) SetHEAD(repoPath, body string) error {
+	path := repoPath + "/.git/HEAD"
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	_, err = file.WriteString(body)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (frs *ReferenceStorage) GetHEAD(repoPath string) (body string, err error) {
+	path := repoPath + "/.git/HEAD"
+	file, err := os.Open(path)
+	if err != nil {
+		return body, err
+	}
+	defer file.Close()
+
+	content, err := io.ReadAll(file)
+	if err != nil {
+		return body, err
+	}
+
+	body = string(content)
+
+	return body, nil
+}
+
 func (frs *ReferenceStorage) SetReference(repoPath, refName string, body string) error {
 	//path := fmt.Sprintf(repoPath+"/.git/refs/%s", refName)
 	refName = normalizeRefName(refName)

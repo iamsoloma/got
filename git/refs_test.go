@@ -12,11 +12,16 @@ import (
 // ============================================================================
 
 func TestReadHead(t *testing.T) {
-	_, cleanup := setupGitRepo(t)
+	dir, cleanup := setupGitRepo(t)
 	defer cleanup()
 
+	repo, err := Open(&filesystem.FileSystemStorage{}, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// After git init, HEAD should point to main
-	head, err := ReadHead()
+	head, err := repo.ReadHead()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,12 +33,17 @@ func TestReadHead(t *testing.T) {
 }
 
 func TestUpdateHead(t *testing.T) {
-	_, cleanup := setupGitRepo(t)
+	dir, cleanup := setupGitRepo(t)
 	defer cleanup()
+
+	repo, err := Open(&filesystem.FileSystemStorage{}, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Update HEAD using got
 	newRef := "refs/heads/develop"
-	if err := UpdateHead(newRef); err != nil {
+	if err := repo.UpdateHead(newRef); err != nil {
 		t.Fatal(err)
 	}
 
