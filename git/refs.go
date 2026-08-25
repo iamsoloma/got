@@ -16,7 +16,7 @@ type Head struct {
 }
 
 func (r *Repository) ReadHead() (Head, error) {
-	body, err := r.Storage.GetHEAD(r.path)
+	body, err := r.Storage.GetHEAD()
 	if err != nil {
 		return Head{}, err
 	}
@@ -28,7 +28,7 @@ func (r *Repository) ReadHead() (Head, error) {
 
 func (r *Repository) UpdateHead(ref string) error {
 	body := fmt.Sprintf("ref: %s", ref)
-	err := r.Storage.SetHEAD(r.path, body)
+	err := r.Storage.SetHEAD(body)
 
 	if err != nil {
 		return err
@@ -45,13 +45,13 @@ type Reference struct {
 
 func (r *Repository) ListLocalBranches() ([]Reference, error) {
 	var branches []Reference
-	refsNames, err := r.Storage.ListReferences(r.path)
+	refsNames, err := r.Storage.ListReferences()
 	if err != nil {
 		return nil, err
 	}
 
 	for _, name := range refsNames {
-		ref, err := r.Storage.GetReference(r.path, name)
+		ref, err := r.Storage.GetReference(name)
 		if err != nil {
 			return nil, err
 		}
@@ -62,11 +62,11 @@ func (r *Repository) ListLocalBranches() ([]Reference, error) {
 }
 
 func (r *Repository) UpdateReference(ref Reference) error {
-	return r.Storage.SetReference(r.path, ref.Name, ref.Body)
+	return r.Storage.SetReference(ref.Name, ref.Body)
 }
 
 func (r *Repository) ReadReference(name string) (Reference, error) {
-	content, err := r.Storage.GetReference(r.path, name)
+	content, err := r.Storage.GetReference(name)
 	if err != nil {
 		return Reference{}, err
 	}
@@ -80,7 +80,7 @@ type Tag struct {
 }
 
 func (r *Repository) CreateTag(tag Tag) error {
-	err := r.Storage.SetReference(r.path, "/tags/"+tag.Name, tag.Sha1)
+	err := r.Storage.SetReference("/tags/"+tag.Name, tag.Sha1)
 	if err != nil {
 		return err
 	}
@@ -88,7 +88,7 @@ func (r *Repository) CreateTag(tag Tag) error {
 }
 
 func (r *Repository) ReadTag(name string) (tag Tag, err error) {
-	tag.Sha1, err = r.Storage.GetReference(r.path, "/tags/"+name)
+	tag.Sha1, err = r.Storage.GetReference("/tags/" + name)
 	if err != nil {
 		return tag, err
 	}
@@ -114,12 +114,12 @@ type Tagger struct {
 func (r *Repository) ReadAnnotatedTag(name string) (tag AnnotatedTag, err error) {
 	tag.Name = name
 
-	refBody, err := r.Storage.GetReference(r.path, "/tags/"+name)
+	refBody, err := r.Storage.GetReference("/tags/" + name)
 	if err != nil {
 		return tag, fmt.Errorf("can`t get reference: %s", err.Error())
 	}
 
-	file, err := r.Storage.ObjectReader(r.path, refBody)
+	file, err := r.Storage.ObjectReader(refBody)
 	if err != nil {
 		return tag, fmt.Errorf("can`t open object: %s", err.Error())
 	}

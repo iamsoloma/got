@@ -18,7 +18,7 @@ import (
 
 // Read the contents of a file in the object storage and return it as a string
 func (r *Repository) CatFile(objectSha string) string {
-	file, err := r.Storage.ObjectReader(r.path, objectSha)
+	file, err := r.Storage.ObjectReader(objectSha)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s", err.Error())
 	}
@@ -51,13 +51,13 @@ func (r *Repository) WriteObject(content []byte, objectType string) (sha string,
 	sha = fmt.Sprintf("%x", sha1.Sum([]byte(object)))
 
 	// Object exists?
-	exists, err := r.Storage.ObjectExists(r.path, sha)
+	exists, err := r.Storage.ObjectExists(sha)
 	if err != nil {
 		return sha, fmt.Errorf("can`t stat object file: %s", err.Error())
 	}
 
 	if !exists {
-		file, err := r.Storage.ObjectWriter(r.path, sha, int64(len(object)))
+		file, err := r.Storage.ObjectWriter(sha, int64(len(object)))
 		if err != nil {
 			return sha, fmt.Errorf("can`t create an object: %s", err.Error())
 		}
@@ -74,7 +74,7 @@ func (r *Repository) WriteObject(content []byte, objectType string) (sha string,
 	}
 
 	// Yes, read it
-	file, err := r.Storage.ObjectReader(r.path, sha)
+	file, err := r.Storage.ObjectReader(sha)
 	if err != nil {
 		return sha, fmt.Errorf("can`t open existing object: %s", err.Error())
 	}
@@ -105,7 +105,7 @@ type Node struct {
 }
 
 func (r *Repository) LsTree(TreeSHA string) ([]Node, error) {
-	file, err := r.Storage.ObjectReader(r.path, TreeSHA)
+	file, err := r.Storage.ObjectReader(TreeSHA)
 	if err != nil {
 		return []Node{}, err
 	}

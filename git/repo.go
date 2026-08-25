@@ -18,5 +18,6 @@ func Init(s storage.Storage, path, defaultBranch string) (repo *Repository, err 
 
 func Open(s storage.Storage, path string) (repo *Repository, err error) {
 	repo = &Repository{Storage: s, path: path}
+	repo.Storage.OpenRepo(path)
 	return repo, err
 }

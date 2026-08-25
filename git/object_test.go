@@ -15,7 +15,7 @@ import (
 // ============================================================================
 
 func TestHashObject(t *testing.T) {
-	_, cleanup := setupGitRepo(t)
+	dir, cleanup := setupGitRepo(t)
 	defer cleanup()
 
 	// Create a test file
@@ -26,7 +26,7 @@ func TestHashObject(t *testing.T) {
 	expectedSHA := runGit(t, "hash-object", "-w", "test.txt")
 
 	// Get SHA from got
-	repo, err := Open(&filesystem.FileSystemStorage{}, ".")
+	repo, err := Open(&filesystem.FileSystemStorage{}, dir)
 	if err != nil {
 		t.Fatalf("can`t open a repo: %s", err.Error())
 	}
