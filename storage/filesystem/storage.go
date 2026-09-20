@@ -11,6 +11,7 @@ import (
 type FileSystemStorage struct {
 	repoPath string
 	ObjectStorage
+	PackStorage
 	ReferenceStorage
 }
 
@@ -25,6 +26,10 @@ func (fs *FileSystemStorage) InitRepo(path, defaultBranch string) error {
 	err = fs.initRepoObjectStorage(fs.repoPath)
 	if err != nil {
 		return fmt.Errorf("Error creating object`s storage: %s\n", err)
+	}
+	err = fs.initRepoPackStorage(fs.repoPath)
+	if err != nil {
+		return fmt.Errorf("Error creating pack`s storage: %s\n", err)
 	}
 	err = fs.initRepoReferenceStorage(fs.repoPath, defaultBranch)
 	if err != nil {
@@ -47,6 +52,16 @@ func (fss *FileSystemStorage) initRepoObjectStorage(path string) error {
 	}
 	return nil
 }
+
+func (fss *FileSystemStorage) initRepoPackStorage(path string) error {
+	fss.PackStorage.repoPath = path
+	err := os.MkdirAll(fss.repoPath+"/"+".git/objects/pack", 0755)
+	if err != nil {
+		return fmt.Errorf("Error creating directory: %s\n", err)
+	}
+	return nil
+}
+
 func (fss *FileSystemStorage) initRepoReferenceStorage(path, defaultBranch string) error {
 	fss.ReferenceStorage.repoPath = path
 	err := os.MkdirAll(fss.repoPath+"/"+".git/refs", 0755)
@@ -72,6 +87,7 @@ type ObjectStorage struct {
 }
 
 func (fos *ObjectStorage) objectPath(sha string) string {
+	//fmt.Println(filepath.Join(fos.repoPath, ".git", "objects", sha[:2], sha[2:]))
 	return fmt.Sprintf("%s/.git/objects/%s/%s", fos.repoPath, sha[:2], sha[2:])
 }
 
@@ -102,6 +118,80 @@ func (fos *ObjectStorage) ObjectExists(sha1 string) (bool, error) {
 		return false, nil
 	}
 	return false, nil
+}
+
+func (fos *ObjectStorage) ListObjects() ([]string, error) {
+	var objects []string
+	objectsDir := filepath.Join(fos.repoPath, ".git", "objects")
+	err := filepath.Walk(objectsDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && len(info.Name()) == 38 { // SHA-1 hash length is 40 characters (2 for directory + 38 for file)
+			sha1 := filepath.Base(filepath.Dir(path)) + info.Name()
+			objects = append(objects, sha1)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return objects, nil
+}
+
+type PackStorage struct {
+	repoPath string
+}
+
+func (fps *PackStorage) PackWriter(packName string, size int64) (io.WriteCloser, error) {
+	dir := fmt.Sprintf("%s/.git/objects/pack", fps.repoPath)
+	err := os.MkdirAll(dir, os.ModePerm)
+	if err != nil {
+		return nil, fmt.Errorf("can`t create pack directory: %s", err.Error())
+	}
+
+	file, err := os.Create(filepath.Join(dir, packName))
+	if err != nil {
+		return nil, fmt.Errorf("can`t create pack file: %s", err.Error())
+	}
+	return file, nil
+}
+
+func (fps *PackStorage) PackReader(packName string) (io.ReadCloser, error) {
+	return os.Open(filepath.Join(fps.repoPath, ".git", "objects", "pack", packName))
+}
+
+func (fps *PackStorage) PackExists(packName string) (bool, error) {
+	_, err := os.Stat(filepath.Join(fps.repoPath, ".git", "objects", "pack", packName))
+	fmt.Println(filepath.Join(fps.repoPath, ".git", "objects", "pack", packName))
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
+}
+
+func (fps *PackStorage) ListPacks() ([]string, error) {
+	var packs []string
+	packsDir := filepath.Join(fps.repoPath, ".git", "objects", "pack")
+	err := filepath.Walk(packsDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && strings.HasSuffix(info.Name(), ".pack") {
+			packName := info.Name()
+			packs = append(packs, packName)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return packs, nil
 }
 
 type ReferenceStorage struct {
@@ -183,8 +273,8 @@ func (frs *ReferenceStorage) GetReference(name string) (body string, err error) 
 		return "", err
 	}
 	return strings.TrimSpace(string(content)), nil
-
 }
+
 func (frs *ReferenceStorage) ListReferences() (names []string, err error) {
 	//path := repoPath + "/.git/refs"
 	path := filepath.Join(frs.repoPath, ".git", "refs")
@@ -213,8 +303,8 @@ func (frs *ReferenceStorage) ListReferences() (names []string, err error) {
 	}
 
 	return names, nil
-
 }
+
 func (frs *ReferenceStorage) DeleteReference(name string) error {
 	path := frs.repoPath + "/.git/refs/" + name
 	return os.Remove(path)
