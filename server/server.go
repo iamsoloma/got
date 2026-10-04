@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"got/storage"
 	"log"
 	"net/http"
 	"path"
@@ -25,11 +26,11 @@ type Server struct {
 	config   Config
 	services []service
 	AuthFunc func(Credential, *Request) (allow bool, err error)
-	//storage *storage.Storage
+	storage  *storage.Storage
 }
 
-func NewServer(cfg Config) *Server {
-	s := Server{config: cfg}
+func NewServer(cfg Config, storage *storage.Storage) *Server {
+	s := Server{config: cfg, storage: storage}
 	s.services = []service{
 		//Dumb Protocol
 		{method: "GET", pattern: regexp.MustCompile("(.*?)/HEAD$"), handler: s.handleGetHead},
@@ -41,9 +42,9 @@ func NewServer(cfg Config) *Server {
 		{method: "GET", pattern: regexp.MustCompile(`(.*?)/objects/pack/pack-[0-9a-f]{40,64}\.pack$`), handler: s.handlePackFile},
 		{method: "GET", pattern: regexp.MustCompile(`(.*?)/objects/pack/pack-[0-9a-f]{40,64}\.idx$`), handler: s.handlePackIdx},
 		//Smart Protocol
-		{method: "GET", pattern: regexp.MustCompile("(.*?)/git-upload-pack$"), handler: s.handleUploadPack, rpc: "git-upload-pack"},
-		{method: "GET", pattern: regexp.MustCompile("(.*?)/git-receive-pack$"), handler: s.handleReceivePack, rpc: "git-receive-pack"},
-		{method: "GET", pattern: regexp.MustCompile("(.*?)/git-upload-archive$"), handler: s.handleUploadArchive, rpc: "git-upload-archive"},
+		{method: "POST", pattern: regexp.MustCompile("(.*?)/git-upload-pack$"), handler: s.handleUploadPack, rpc: "git-upload-pack"},
+		{method: "POST", pattern: regexp.MustCompile("(.*?)/git-receive-pack$"), handler: s.handleReceivePack, rpc: "git-receive-pack"},
+		{method: "POST", pattern: regexp.MustCompile("(.*?)/git-upload-archive$"), handler: s.handleUploadArchive, rpc: "git-upload-archive"},
 	}
 
 	return &s
@@ -54,7 +55,7 @@ func (s *Server) route(r *http.Request) (srv *service, path string) {
 	for _, s := range s.services {
 		if pathParts := s.pattern.FindStringSubmatch(r.URL.Path); pathParts != nil {
 			if s.method == r.Method {
-				path := pathParts[0]
+				path := pathParts[1]
 				return &s, path
 			}
 		}
