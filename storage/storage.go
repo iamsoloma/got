@@ -6,7 +6,7 @@ import (
 
 type Storage interface {
 	InitRepo(path string, defaultBranch string) error
-	OpenRepo(path string)
+	OpenRepo(path string) error
 	ObjectStorage
 	PackStorage
 	ReferenceStorage
