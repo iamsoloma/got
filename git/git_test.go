@@ -3,8 +3,10 @@ package git
 import (
 	"got/storage/filesystem"
 	"got/utils"
+	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -17,8 +19,7 @@ const (
 	timezone  = 18000
 )
 
-// setupGitRepo creates a temp directory, initializes a real git repo,
-// configures user, and returns cleanup function.
+// setupGitRepo creates a work tree backed by a bare Git directory.
 func setupGitRepo(t *testing.T) (repoDir string, cleanup func()) {
 	t.Helper()
 
@@ -26,32 +27,52 @@ func setupGitRepo(t *testing.T) (repoDir string, cleanup func()) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	origDir, err := os.Getwd()
+	repoDir, err = os.MkdirTemp("", "got-bare-*")
 	if err != nil {
 		os.RemoveAll(dir)
 		t.Fatal(err)
 	}
 
+	origDir, err := os.Getwd()
+	if err != nil {
+		os.RemoveAll(dir)
+		os.RemoveAll(repoDir)
+		t.Fatal(err)
+	}
+
 	if err := os.Chdir(dir); err != nil {
 		os.RemoveAll(dir)
+		os.RemoveAll(repoDir)
 		t.Fatal(err)
 	}
 
 	// Configure default branch
 	exec.Command("git", "config", "--global", "init.defaultBranch", "main").Run()
 
-	// Initialize git repo using real git
-	cmd := exec.Command("git", "init")
+	// Initialize a bare repository and attach the temporary work tree to it.
+	cmd := exec.Command("git", "init", "--bare", repoDir)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		os.Chdir(origDir)
 		os.RemoveAll(dir)
+		os.RemoveAll(repoDir)
 		t.Fatalf("git init failed: %v, output: %s", err, out)
 	}
+	t.Setenv("GIT_DIR", repoDir)
+	t.Setenv("GIT_WORK_TREE", dir)
 
 	// Configure git user for commits
-	exec.Command("git", "config", "user.email", email).Run()
-	exec.Command("git", "config", "user.name", name).Run()
+	for _, args := range [][]string{
+		{"config", "user.email", email},
+		{"config", "user.name", name},
+	} {
+		cmd := exec.Command("git", args...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			os.Chdir(origDir)
+			os.RemoveAll(dir)
+			os.RemoveAll(repoDir)
+			t.Fatalf("git %v failed: %v, output: %s", args, err, out)
+		}
+	}
 
 	// Set date for commits
 	ts := strconv.FormatInt(timestamp, 10)
@@ -60,23 +81,26 @@ func setupGitRepo(t *testing.T) (repoDir string, cleanup func()) {
 	if err != nil {
 		os.Chdir(origDir)
 		os.RemoveAll(dir)
+		os.RemoveAll(repoDir)
 		t.Fatalf("GIT_COMMITTER_DATE editing error: %v", err)
 	}
 	err = os.Setenv("GIT_AUTHOR_DATE", tz+" "+ts)
 	if err != nil {
 		os.Chdir(origDir)
 		os.RemoveAll(dir)
+		os.RemoveAll(repoDir)
 		t.Fatalf("GIT_AUTHOR_DATE editing error: %v", err)
 	}
 
 	cleanup = func() {
 		os.Chdir(origDir)
 		os.RemoveAll(dir)
+		os.RemoveAll(repoDir)
 		os.Unsetenv("GIT_COMMITTER_DATE")
 		os.Unsetenv("GIT_AUTHOR_DATE")
 	}
 
-	return dir, cleanup
+	return repoDir, cleanup
 }
 
 // runGit executes a git command and returns trimmed stdout.
@@ -115,7 +139,7 @@ func TestInit(t *testing.T) {
 	}
 
 	// Check that required directories exist
-	for _, d := range []string{".git", ".git/objects", ".git/refs"} {
+	for _, d := range []string{"objects", "refs"} {
 		if info, err := os.Stat(d); os.IsNotExist(err) {
 			t.Errorf("Init: expected directory %s to exist", d)
 		} else if !info.IsDir() {
@@ -124,13 +148,97 @@ func TestInit(t *testing.T) {
 	}
 
 	// Check HEAD file content
-	head, err := os.ReadFile(".git/HEAD")
+	head, err := os.ReadFile("./HEAD")
 	if err != nil {
 		t.Fatal(err)
 	}
 	expected := "ref: refs/heads/main\n"
 	if string(head) != expected {
 		t.Errorf("Init: HEAD content mismatch:\n  expected: %q\n  actual:   %q", expected, string(head))
+	}
+}
+
+func TestInitCreatesOpenableBareRepository(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "bare")
+	storage := &filesystem.FileSystemStorage{}
+	if _, err := Init(storage, dir, "trunk"); err != nil {
+		t.Fatal(err)
+	}
+
+	repo, err := Open(&filesystem.FileSystemStorage{}, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	head, err := repo.ReadHead()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if head.Ref != "refs/heads/trunk\n" {
+		t.Fatalf("HEAD ref = %q, want %q", head.Ref, "refs/heads/trunk\n")
+	}
+
+	out, err := exec.Command("git", "--git-dir", dir, "rev-parse", "--is-bare-repository").CombinedOutput()
+	if err != nil {
+		t.Fatalf("git did not recognize initialized bare repository: %v, output: %s", err, out)
+	}
+	if strings.TrimSpace(string(out)) != "true" {
+		t.Fatalf("git reports repository is not bare: %q", out)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".git")); !os.IsNotExist(err) {
+		t.Fatalf("bare repository unexpectedly contains .git: %v", err)
+	}
+}
+
+func TestBarePackStorageRoundTrip(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "bare")
+	repo, err := Init(&filesystem.FileSystemStorage{}, dir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo, err = Open(&filesystem.FileSystemStorage{}, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const packName = "pack-test.pack"
+	const content = "bare pack contents"
+	writer, err := repo.Storage.PackWriter(packName, int64(len(content)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(writer, content); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	exists, err := repo.Storage.PackExists(packName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !exists {
+		t.Fatalf("pack %q was not found in bare repository", packName)
+	}
+	reader, err := repo.Storage.PackReader(packName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	got, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != content {
+		t.Fatalf("pack contents = %q, want %q", got, content)
+	}
+
+	packs, err := repo.Storage.ListPacks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(packs) != 1 || packs[0] != packName {
+		t.Fatalf("ListPacks() = %v, want [%s]", packs, packName)
 	}
 }
 

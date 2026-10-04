@@ -1,7 +1,6 @@
 package git
 
 import (
-	"fmt"
 	"got/storage/filesystem"
 	"os"
 	"testing"
@@ -147,7 +146,6 @@ func TestCreateAndReadTag(t *testing.T) {
 
 func TestReadAnnotatedTag(t *testing.T) {
 	dir, cleanup := setupGitRepo(t)
-	fmt.Println(dir)
 	defer cleanup()
 
 	// Create a commit

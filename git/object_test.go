@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"got/storage/filesystem"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -41,13 +42,13 @@ func TestHashObject(t *testing.T) {
 }
 
 func TestHashObject_EmptyFile(t *testing.T) {
-	_, cleanup := setupGitRepo(t)
+	dir, cleanup := setupGitRepo(t)
 	defer cleanup()
 
 	createFile(t, "empty.txt", "")
 
 	expectedSHA := runGit(t, "hash-object", "-w", "empty.txt")
-	repo, err := Open(&filesystem.FileSystemStorage{}, ".")
+	repo, err := Open(&filesystem.FileSystemStorage{}, dir)
 	if err != nil {
 		t.Fatalf("can`t open a repo: %s", err.Error())
 	}
@@ -62,7 +63,7 @@ func TestHashObject_EmptyFile(t *testing.T) {
 }
 
 func TestHashObject_BinaryFile(t *testing.T) {
-	_, cleanup := setupGitRepo(t)
+	dir, cleanup := setupGitRepo(t)
 	defer cleanup()
 
 	binaryContent := []byte{0x00, 0x01, 0x02, 0xFF, 0xFE}
@@ -75,7 +76,7 @@ func TestHashObject_BinaryFile(t *testing.T) {
 	if err != nil {
 		t.Errorf("can`t read a file: %s", err.Error())
 	}
-	repo, err := Open(&filesystem.FileSystemStorage{}, ".")
+	repo, err := Open(&filesystem.FileSystemStorage{}, dir)
 	if err != nil {
 		t.Fatalf("can`t open a repo: %s", err.Error())
 	}
@@ -109,7 +110,7 @@ func TestHashObject_ExistingDifferentObjectCollision(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	path := fmt.Sprintf(".git/objects/%s/%s", sha[:2], sha[2:])
+	path := filepath.Join(dir, "objects", sha[:2], sha[2:])
 	fakeObject := []byte("blob 8\x00badstuff")
 	var buf bytes.Buffer
 	zw := zlib.NewWriter(&buf)
